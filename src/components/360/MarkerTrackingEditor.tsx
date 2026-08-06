@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Eye, EyeOff, Save, X,
 import { Vehicle360Frame, Vehicle360MarkerPosition } from '../../types';
 import { ImageCoordinateStage } from './ImageCoordinateStage';
 import { interpolateMarkerPositions } from '../../utils/interpolation';
+import TrackingWorker from '../../workers/tracking.worker?worker';
 
 interface MarkerTrackingEditorProps {
   markerId: string;
@@ -20,6 +21,9 @@ export function MarkerTrackingEditor({ markerId, initialFrame, initialX, initial
   const [currentFrame, setCurrentFrame] = useState(initialFrame);
   const [positions, setPositions] = useState<Vehicle360MarkerPosition[]>([]);
   const [saving, setSaving] = useState(false);
+  const [tracking, setTracking] = useState(false);
+  const [trackProgress, setTrackProgress] = useState('');
+  const [pendingResults, setPendingResults] = useState<Vehicle360MarkerPosition[] | null>(null);
   
   const totalFrames = frames.length;
 
@@ -73,6 +77,51 @@ export function MarkerTrackingEditor({ markerId, initialFrame, initialX, initial
     setPositions(prev => prev.filter(p => p.frameNumber !== currentFrame));
   };
 
+  const handleAutoTrack = () => {
+    if (!currentPos || !currentPos.visible) {
+      alert("Selecione um frame onde o marcador esteja visível e posicionado corretamente.");
+      return;
+    }
+    
+    setTracking(true);
+    setTrackProgress('Iniciando rastreamento...');
+    
+    const worker = new TrackingWorker();
+    
+    worker.onmessage = (e) => {
+      const { type, message, results, error } = e.data;
+      if (type === 'progress') {
+        setTrackProgress(message);
+      } else if (type === 'done') {
+        setPendingResults(results);
+        setTracking(false);
+        worker.terminate();
+      } else if (type === 'error') {
+        alert("Erro no rastreamento: " + error);
+        setTracking(false);
+        worker.terminate();
+      }
+    };
+    
+    worker.postMessage({
+      frames: frames.map(f => f.imageUrl),
+      initialFrame: currentFrame,
+      initialX: currentPos.posX,
+      initialY: currentPos.posY
+    });
+  };
+  
+  const acceptResults = () => {
+    if (pendingResults) {
+      setPositions(pendingResults);
+      setPendingResults(null);
+    }
+  };
+  
+  const discardResults = () => {
+    setPendingResults(null);
+  };
+
   const handleInterpolate = () => {
     const keyframes = positions.filter(p => p.isKeyframe);
     if (keyframes.length < 2) {
@@ -92,12 +141,15 @@ export function MarkerTrackingEditor({ markerId, initialFrame, initialX, initial
     }
   };
   
-  const markers = currentPos && currentPos.visible ? [{
+  const activePositions = pendingResults || positions;
+  const currentActivePos = activePositions.find(p => p.frameNumber === currentFrame);
+  const markers = currentActivePos && currentActivePos.visible ? [{
     id: 'tracker',
-    x: currentPos.posX,
-    y: currentPos.posY,
-    content: <div className="w-6 h-6 rounded-full border-2 border-white shadow-lg bg-indigo-500/80 animate-pulse flex items-center justify-center text-xs text-white font-bold">{currentPos.isKeyframe ? 'K' : ''}</div>
+    x: currentActivePos.posX,
+    y: currentActivePos.posY,
+    content: <div className="w-6 h-6 rounded-full border-2 border-white shadow-lg bg-indigo-500/80 animate-pulse flex items-center justify-center text-xs text-white font-bold">{currentActivePos.isKeyframe ? 'K' : ''}</div>
   }] : [];
+
 
   return (
     <div className="bg-gray-50 p-4 rounded-xl border border-gray-300 space-y-4">
@@ -128,7 +180,7 @@ export function MarkerTrackingEditor({ markerId, initialFrame, initialX, initial
           className="cursor-crosshair"
           onCoordinateClick={({x, y}) => handleStageClick(x, y)}
         />
-        {!currentPos?.visible && currentPos?.isKeyframe && (
+        {!currentActivePos?.visible && currentActivePos?.isKeyframe && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
             <span className="bg-gray-900 text-white px-4 py-2 rounded-lg font-medium">Marcador Oculto neste frame</span>
           </div>
@@ -137,7 +189,7 @@ export function MarkerTrackingEditor({ markerId, initialFrame, initialX, initial
 
       <div className="flex items-center gap-2 overflow-x-auto py-2 scrollbar-thin px-2">
         {frames.map((frame, idx) => {
-          const pos = positions.find(p => p.frameNumber === idx);
+          const pos = (pendingResults || positions).find(p => p.frameNumber === idx);
           const isKey = pos?.isKeyframe;
           const isVis = pos?.visible;
           return (
@@ -164,36 +216,59 @@ export function MarkerTrackingEditor({ markerId, initialFrame, initialX, initial
       </div>
 
       <div className="flex flex-wrap gap-2 justify-between items-center bg-white p-3 rounded-lg border border-gray-200">
-        <div className="flex gap-2">
-          {currentPos?.isKeyframe ? (
-            <>
-              <button onClick={toggleVisibility} className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md">
-                {currentPos.visible ? <EyeOff size={16} /> : <Eye size={16} />} {currentPos.visible ? 'Ocultar' : 'Mostrar'}
+        {tracking ? (
+          <div className="w-full flex items-center gap-3 text-indigo-700">
+            <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium">{trackProgress}</span>
+          </div>
+        ) : pendingResults ? (
+          <div className="w-full flex items-center justify-between">
+            <span className="text-sm font-medium text-amber-700">Prévia do rastreamento automático concluída.</span>
+            <div className="flex gap-2">
+              <button onClick={acceptResults} className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md">Aceitar resultado</button>
+              <button onClick={discardResults} className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md">Descartar</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              {currentPos?.isKeyframe ? (
+                <>
+                  <button onClick={toggleVisibility} className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md">
+                    {currentPos.visible ? <EyeOff size={16} /> : <Eye size={16} />} {currentPos.visible ? 'Ocultar' : 'Mostrar'}
+                  </button>
+                  <button onClick={removeKeyframe} className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md">
+                    <XCircle size={16} /> Remover
+                  </button>
+                </>
+              ) : (
+                <span className="text-sm text-gray-500 px-2 py-1.5">Clique na imagem para adicionar um frame-chave.</span>
+              )}
+            </div>
+            
+            <div className="flex gap-2">
+              <button 
+                onClick={handleAutoTrack}
+                className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md border border-indigo-200"
+              >
+                Rastrear automaticamente
               </button>
-              <button onClick={removeKeyframe} className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md">
-                <XCircle size={16} /> Remover
+              <button 
+                onClick={handleInterpolate}
+                className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200"
+              >
+                Interpolar Posições
               </button>
-            </>
-          ) : (
-            <span className="text-sm text-gray-500 px-2 py-1.5">Clique na imagem para adicionar um frame-chave.</span>
-          )}
-        </div>
-        
-        <div className="flex gap-2">
-          <button 
-            onClick={handleInterpolate}
-            className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md border border-indigo-200"
-          >
-            Interpolar Posições
-          </button>
-          <button 
-            onClick={save}
-            disabled={saving}
-            className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md disabled:opacity-50"
-          >
-            <Save size={16} /> {saving ? 'Salvando...' : 'Salvar'}
-          </button>
-        </div>
+              <button 
+                onClick={save}
+                disabled={saving}
+                className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md disabled:opacity-50"
+              >
+                <Save size={16} /> {saving ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

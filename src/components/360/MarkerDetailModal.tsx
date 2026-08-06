@@ -15,6 +15,33 @@ interface MarkerDetailModalProps {
 export function MarkerDetailModal({ isOpen, onClose, type, title, description, category, frameNumber, images }: MarkerDetailModalProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageError, setImageError] = useState(false);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+    
+    if (isLeftSwipe && images.length > 1) {
+      setCurrentIndex(prev => (prev < images.length - 1 ? prev + 1 : 0));
+    }
+    if (isRightSwipe && images.length > 1) {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : images.length - 1));
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -23,9 +50,17 @@ export function MarkerDetailModal({ isOpen, onClose, type, title, description, c
       
       const handleEscape = (e: KeyboardEvent) => {
         if (e.key === 'Escape') onClose();
+        if (images.length > 1) {
+          if (e.key === 'ArrowLeft') setCurrentIndex(prev => (prev > 0 ? prev - 1 : images.length - 1));
+          if (e.key === 'ArrowRight') setCurrentIndex(prev => (prev < images.length - 1 ? prev + 1 : 0));
+        }
       };
       window.addEventListener('keydown', handleEscape);
-      return () => window.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+      return () => {
+        window.removeEventListener('keydown', handleEscape);
+        document.body.style.overflow = 'unset';
+      };
     }
   }, [isOpen, onClose]);
 
@@ -47,11 +82,11 @@ export function MarkerDetailModal({ isOpen, onClose, type, title, description, c
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:p-8"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95"
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl relative"
+        className="bg-white w-full h-full flex flex-col md:flex-row overflow-hidden relative"
         onClick={e => e.stopPropagation()}
         onPointerDown={e => e.stopPropagation()}
       >
@@ -62,9 +97,9 @@ export function MarkerDetailModal({ isOpen, onClose, type, title, description, c
           <X size={24} />
         </button>
 
-        <div className="flex flex-col md:flex-row h-full max-h-[90vh]">
+        <div className="flex flex-col md:flex-row h-full w-full">
           {/* Image Section */}
-          <div className="flex-1 bg-black relative flex items-center justify-center min-h-[300px] md:min-h-0">
+          <div className="flex-1 bg-black/95 relative flex items-center justify-center min-h-[300px] md:min-h-0 overflow-hidden" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
             {images.length > 0 ? (
               <>
                 {imageError ? (
@@ -120,7 +155,7 @@ export function MarkerDetailModal({ isOpen, onClose, type, title, description, c
           </div>
 
           {/* Details Section */}
-          <div className="w-full md:w-80 lg:w-96 p-6 flex flex-col gap-4 overflow-y-auto bg-white">
+          <div className="w-full md:w-96 p-6 flex flex-col gap-4 overflow-y-auto bg-white border-l border-gray-200 z-10 shadow-lg shrink-0">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className={`px-2 py-1 rounded text-xs font-medium uppercase tracking-wider ${type === 'poi' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
