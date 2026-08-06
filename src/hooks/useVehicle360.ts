@@ -169,19 +169,36 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     setProject(null);
   };
   
-  const createHotspot = async (hotspot: Omit<Vehicle360Hotspot, 'id' | 'projectId' | 'createdAt' | 'updatedAt' | 'imageUrl' | 'storagePath'>, file: File) => {
-    if (!project) return;
+  const createHotspot = async (data: {
+    frameNumber: number;
+    posX: number;
+    posY: number;
+    title: string;
+    description?: string;
+    file?: File;
+  }): Promise<string> => {
+    if (!project) throw new Error("Projeto não carregado");
     setUploading(true);
     try {
-      const { imageUrl, storagePath } = await vehicle360Storage.uploadHotspotImage(vehicleId, project.id, file);
-      await vehicle360Service.createHotspot({
-        ...hotspot,
+      let imageUrl, storagePath;
+      if (data.file) {
+        const upload = await vehicle360Storage.uploadHotspotImage(vehicleId, project.id, data.file);
+        imageUrl = upload.imageUrl;
+        storagePath = upload.storagePath;
+      }
+      const id = await vehicle360Service.createHotspot({
         projectId: project.id,
+        title: data.title,
+        description: data.description,
+        frameNumber: data.frameNumber,
+        posX: data.posX,
+        posY: data.posY,
+        active: true,
         imageUrl,
         storagePath
       });
       await vehicle360Service.touchProject(project.id);
-      await loadProject();
+      return id;
     } finally {
       setUploading(false);
     }
@@ -211,26 +228,41 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     await loadProject();
   };
 
-  const createDamageMarker = async (
-    marker: Omit<Vehicle360DamageMarker, 'id' | 'projectId' | 'createdAt' | 'updatedAt' | 'images'>,
-    files: File[]
-  ) => {
-    if (!project) return;
+  const createDamageMarker = async (data: {
+    frameNumber: number;
+    posX: number;
+    posY: number;
+    title: string;
+    description?: string;
+    category: string;
+    files?: File[];
+  }): Promise<string> => {
+    if (!project) throw new Error("Projeto não carregado");
     setUploading(true);
     try {
-      const uploadedImages = [];
-      for (const file of files) {
-        const { imageUrl, storagePath } = await vehicle360Storage.uploadDamageImage(vehicleId, project.id, file);
-        uploadedImages.push({ imageUrl, storagePath });
+      const images = [];
+      if (data.files && data.files.length > 0) {
+        for (let i = 0; i < data.files.length; i++) {
+          const file = data.files[i];
+          const upload = await vehicle360Storage.uploadDamageImage(vehicleId, project.id, file);
+          images.push({
+            imageUrl: upload.imageUrl,
+            storagePath: upload.storagePath,
+            orderIndex: i
+          });
+        }
       }
-      
-      await vehicle360Service.createDamageMarker({
-        ...marker,
+      const id = await vehicle360Service.createDamageMarker({
         projectId: project.id,
-      }, uploadedImages);
-      
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        frameNumber: data.frameNumber,
+        posX: data.posX,
+        posY: data.posY,
+              }, images);
       await vehicle360Service.touchProject(project.id);
-      await loadProject();
+      return id;
     } finally {
       setUploading(false);
     }

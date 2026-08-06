@@ -7,6 +7,17 @@ import {
   Vehicle360DamageImage
 } from '../types';
 
+
+export function normalizeMarkerPosition(position: any) {
+  return {
+    frameNumber: Number(position.frameNumber),
+    posX: Number(position.posX),
+    posY: Number(position.posY),
+    visible: typeof position.visible === 'boolean' ? position.visible : true,
+    isKeyframe: typeof position.isKeyframe === 'boolean' ? position.isKeyframe : false,
+  };
+}
+
 export const vehicle360Service = {
   // Public Viewer
   async getPublishedProjectByVehicleId(vehicleId: string): Promise<Vehicle360Project | null> {
@@ -343,7 +354,7 @@ export const vehicle360Service = {
     if (error) throw error;
   },
 
-  async createHotspot(hotspot: Omit<Vehicle360Hotspot, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {
+  async createHotspot(hotspot: Omit<Vehicle360Hotspot, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     const { data: inserted, error } = await supabase
       .from('vehicle_360_hotspots')
       .insert({
@@ -374,6 +385,7 @@ export const vehicle360Service = {
       });
       
     if (posError) throw posError;
+    return inserted.id;
   },
 
   async deleteHotspot(hotspotId: string): Promise<void> {
@@ -413,8 +425,8 @@ export const vehicle360Service = {
 
   async createDamageMarker(
     marker: Omit<Vehicle360DamageMarker, 'id' | 'createdAt' | 'updatedAt' | 'images'>,
-    images: { imageUrl: string, storagePath?: string }[]
-  ): Promise<void> {
+    images: { imageUrl: string, storagePath?: string, orderIndex?: number }[]
+  ): Promise<string> {
     const { data: insertedMarker, error: markerError } = await supabase
       .from('vehicle_360_damage_markers')
       .insert({
@@ -456,6 +468,7 @@ export const vehicle360Service = {
 
       if (imagesError) throw imagesError;
     }
+    return insertedMarker.id;
   },
 
   async updateDamageMarker(markerId: string, updates: Partial<Vehicle360DamageMarker>): Promise<void> {
@@ -491,49 +504,76 @@ export const vehicle360Service = {
     if (error) throw error;
   },
 
-  async replaceHotspotPositions(hotspotId: string, positions: { frameNumber: number; posX: number; posY: number; visible: boolean; isKeyframe: boolean }[]): Promise<void> {
+  async replaceHotspotPositions(hotspotId: string, positions: any[]): Promise<void> {
+    const normalized = positions.map(normalizeMarkerPosition);
+    
+    // Upsert new positions
+    if (normalized.length > 0) {
+      const { error: upsertError } = await supabase
+        .from('vehicle_360_hotspot_positions')
+        .upsert(
+          normalized.map(p => ({
+            hotspot_id: hotspotId,
+            frame_number: p.frameNumber,
+            pos_x: p.posX,
+            pos_y: p.posY,
+            visible: p.visible,
+            is_keyframe: p.isKeyframe
+          })),
+          { onConflict: 'hotspot_id, frame_number' }
+        );
+      if (upsertError) throw upsertError;
+    }
+
+    // Delete removed positions
+    const frameNumbers = normalized.map(p => p.frameNumber);
     const { error: delError } = await supabase
       .from('vehicle_360_hotspot_positions')
       .delete()
-      .eq('hotspot_id', hotspotId);
-    
-    if (delError) throw delError;
-
-    if (positions.length > 0) {
-      const { error: insError } = await supabase
-        .from('vehicle_360_hotspot_positions')
-        .insert(positions.map(p => ({
-          hotspot_id: hotspotId,
-          frame_number: p.frameNumber,
-          pos_x: p.posX,
-          pos_y: p.posY,
-          visible: p.visible,
-          is_keyframe: p.isKeyframe
-        })));
-      if (insError) throw insError;
+      .eq('hotspot_id', hotspotId)
+      .not('frame_number', 'in', `(${frameNumbers.join(',')})`);
+      
+    if (delError && frameNumbers.length > 0) {
+      // If there's an error deleting, at least we upserted
+      console.error('Error deleting old hotspot positions', delError);
+    } else if (frameNumbers.length === 0) {
+       await supabase.from('vehicle_360_hotspot_positions').delete().eq('hotspot_id', hotspotId);
     }
   },
 
-  async replaceDamagePositions(markerId: string, positions: { frameNumber: number; posX: number; posY: number; visible: boolean; isKeyframe: boolean }[]): Promise<void> {
+  async replaceDamagePositions(markerId: string, positions: any[]): Promise<void> {
+    const normalized = positions.map(normalizeMarkerPosition);
+    
+    // Upsert new positions
+    if (normalized.length > 0) {
+      const { error: upsertError } = await supabase
+        .from('vehicle_360_damage_marker_positions')
+        .upsert(
+          normalized.map(p => ({
+            marker_id: markerId,
+            frame_number: p.frameNumber,
+            pos_x: p.posX,
+            pos_y: p.posY,
+            visible: p.visible,
+            is_keyframe: p.isKeyframe
+          })),
+          { onConflict: 'marker_id, frame_number' }
+        );
+      if (upsertError) throw upsertError;
+    }
+
+    // Delete removed positions
+    const frameNumbers = normalized.map(p => p.frameNumber);
     const { error: delError } = await supabase
       .from('vehicle_360_damage_marker_positions')
       .delete()
-      .eq('marker_id', markerId);
-    
-    if (delError) throw delError;
-
-    if (positions.length > 0) {
-      const { error: insError } = await supabase
-        .from('vehicle_360_damage_marker_positions')
-        .insert(positions.map(p => ({
-          marker_id: markerId,
-          frame_number: p.frameNumber,
-          pos_x: p.posX,
-          pos_y: p.posY,
-          visible: p.visible,
-          is_keyframe: p.isKeyframe
-        })));
-      if (insError) throw insError;
+      .eq('marker_id', markerId)
+      .not('frame_number', 'in', `(${frameNumbers.join(',')})`);
+      
+    if (delError && frameNumbers.length > 0) {
+      console.error('Error deleting old damage positions', delError);
+    } else if (frameNumbers.length === 0) {
+       await supabase.from('vehicle_360_damage_marker_positions').delete().eq('marker_id', markerId);
     }
   },
 };
