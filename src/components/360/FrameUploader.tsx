@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UploadCloud, CheckCircle2, AlertCircle } from 'lucide-react';
 import { validation360 } from '../../utils/validation360';
 
@@ -10,7 +10,19 @@ interface FrameUploaderProps {
 
 export function FrameUploader({ onUpload, uploading, progress }: FrameUploaderProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Generate object URLs
+    const urls = selectedFiles.map(file => URL.createObjectURL(file));
+    setPreviewUrls(urls);
+    
+    // Cleanup on unmount or when files change
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [selectedFiles]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -80,7 +92,7 @@ export function FrameUploader({ onUpload, uploading, progress }: FrameUploaderPr
             {selectedFiles.map((file, idx) => (
               <div key={idx} className="flex-shrink-0 w-16 text-center">
                 <div className="h-16 w-16 bg-gray-200 rounded-md mb-1 flex items-center justify-center overflow-hidden">
-                  <img src={URL.createObjectURL(file)} alt="" className="object-cover h-full w-full" />
+                  <img src={previewUrls[idx]} alt="" className="object-cover h-full w-full" />
                 </div>
                 <div className="text-xs text-gray-500 truncate" title={file.name}>{file.name}</div>
               </div>

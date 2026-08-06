@@ -147,10 +147,17 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     if (!project || !project.frames) return false;
     const { valid, errors } = validation360.checklist360(project, project.frames);
     if (!valid) {
-      setError(new Error(errors.join('\\n')));
+      setError(new Error(errors.join('\n')));
       return false;
     }
     await vehicle360Service.updateProjectStatus(project.id, 'completed');
+    await loadProject();
+    return true;
+  };
+
+  const unpublishProject = async () => {
+    if (!project) return false;
+    await vehicle360Service.updateProjectStatus(project.id, 'draft');
     await loadProject();
     return true;
   };
@@ -173,17 +180,34 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
         imageUrl,
         storagePath
       });
+      await vehicle360Service.touchProject(project.id);
       await loadProject();
     } finally {
       setUploading(false);
     }
   };
+
+  const updateHotspot = async (hotspotId: string, updates: Partial<Vehicle360Hotspot>) => {
+    if (!project) return;
+    await vehicle360Service.updateHotspot(hotspotId, updates);
+    await vehicle360Service.touchProject(project.id);
+    await loadProject();
+  };
+
+  const repositionHotspot = async (hotspotId: string, posX: number, posY: number) => {
+    if (!project) return;
+    await vehicle360Service.repositionHotspot(hotspotId, posX, posY);
+    await vehicle360Service.touchProject(project.id);
+    await loadProject();
+  };
   
   const deleteHotspot = async (hotspot: Vehicle360Hotspot) => {
+    if (!project) return;
     if (hotspot.storagePath) {
       await vehicle360Storage.deleteStorageObject(hotspot.storagePath);
     }
     await vehicle360Service.deleteHotspot(hotspot.id);
+    await vehicle360Service.touchProject(project.id);
     await loadProject();
   };
 
@@ -205,19 +229,97 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
         projectId: project.id,
       }, uploadedImages);
       
+      await vehicle360Service.touchProject(project.id);
       await loadProject();
     } finally {
       setUploading(false);
     }
   };
 
+  const updateDamageMarker = async (markerId: string, updates: Partial<Vehicle360DamageMarker>) => {
+    if (!project) return;
+    await vehicle360Service.updateDamageMarker(markerId, updates);
+    await vehicle360Service.touchProject(project.id);
+    await loadProject();
+  };
+
+  const repositionDamageMarker = async (markerId: string, posX: number, posY: number) => {
+    if (!project) return;
+    await vehicle360Service.repositionDamageMarker(markerId, posX, posY);
+    await vehicle360Service.touchProject(project.id);
+    await loadProject();
+  };
+
   const deleteDamageMarker = async (marker: Vehicle360DamageMarker) => {
+    if (!project) return;
     if (marker.images && marker.images.length > 0) {
       const paths = marker.images.map(img => img.storagePath).filter((p): p is string => !!p);
       await vehicle360Storage.deleteStorageObjects(paths);
     }
     await vehicle360Service.deleteDamageMarker(marker.id);
+    await vehicle360Service.touchProject(project.id);
     await loadProject();
+  };
+
+  const replaceFrame = async (frame: Vehicle360Frame, file: File) => {
+    if (!project) return;
+    setUploading(true);
+    try {
+      // 1. Upload new image
+      const { width, height } = await validation360.getImageDimensions(file);
+      const filename = `${String(frame.frameNumber).padStart(3, '0')}-${file.name}`;
+      const { imageUrl, storagePath } = await vehicle360Storage.uploadFrame(vehicleId, project.id, file, filename);
+      
+      // 2. Update record
+      await vehicle360Service.replaceFrame(frame.id, {
+        imageUrl,
+        storagePath,
+        originalFilename: file.name,
+        width,
+        height
+      });
+      
+      // 3. Delete old image
+      if (frame.storagePath) {
+        await vehicle360Storage.deleteStorageObject(frame.storagePath);
+      }
+      
+      await vehicle360Service.touchProject(project.id);
+      await loadProject();
+    } catch(err: any) {
+      setError(err);
+      throw err;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeFrame = async (frame: Vehicle360Frame) => {
+    if (!project || !project.frames) return;
+    setUploading(true); // Treat as upload to lock UI
+    try {
+      await vehicle360Service.removeFrame(project.id, frame.id, project.frames);
+      if (frame.storagePath) {
+        await vehicle360Storage.deleteStorageObject(frame.storagePath);
+      }
+      await loadProject();
+    } catch(err: any) {
+      setError(err);
+      throw err;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const reorderFrames = async (orderedFrames: Vehicle360Frame[]) => {
+    if (!project) return;
+    try {
+      await vehicle360Service.reorderFrames(project.id, orderedFrames);
+      await loadProject();
+    } catch(err: any) {
+      setError(err);
+      throw err;
+    }
   };
 
   return {
@@ -243,10 +345,18 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     reload: loadProject,
     uploadFrames,
     publishProject,
+    unpublishProject,
     deleteProject,
     createHotspot,
+    updateHotspot,
+    repositionHotspot,
     deleteHotspot,
     createDamageMarker,
-    deleteDamageMarker
+    updateDamageMarker,
+    repositionDamageMarker,
+    deleteDamageMarker,
+    replaceFrame,
+    removeFrame,
+    reorderFrames
   };
 }
