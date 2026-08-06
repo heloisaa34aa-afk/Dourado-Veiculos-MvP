@@ -3,6 +3,7 @@ import { useVehicle360 } from '../hooks/useVehicle360';
 import { ImageCoordinateStage } from './360/ImageCoordinateStage';
 import { ChevronLeft, ChevronRight, Play, Pause, AlertTriangle, Info } from 'lucide-react';
 import { Vehicle360Hotspot, Vehicle360DamageMarker } from '../types';
+import { MarkerDetailModal } from './360/MarkerDetailModal';
 
 interface ClientPoiPanelProps {
   vehicleId: string;
@@ -32,14 +33,39 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
   }
 
   if (!project || totalFrames === 0) {
-    return null; // Don't show anything if there's no completed project
+    return null;
   }
 
   const currentFrameData = project.frames![currentFrame];
   if (!currentFrameData) return null;
 
-  const currentHotspots = project.hotspots?.filter(h => h.frameNumber === currentFrame && h.active) || [];
-  const currentDamages = project.damageMarkers?.filter(d => d.frameNumber === currentFrame) || [];
+  const currentHotspots = (project.hotspots || []).filter(h => h.active).map(h => {
+    const pos = h.positions?.find(p => p.frameNumber === currentFrame);
+    if (pos) {
+       return pos.visible ? { ...h, posX: pos.posX, posY: pos.posY } : null;
+    }
+    return h.frameNumber === currentFrame ? h : null;
+  }).filter(Boolean) as Vehicle360Hotspot[];
+
+  const currentDamages = (project.damageMarkers || []).map(d => {
+    const pos = d.positions?.find(p => p.frameNumber === currentFrame);
+    if (pos) {
+       return pos.visible ? { ...d, posX: pos.posX, posY: pos.posY } : null;
+    }
+    return d.frameNumber === currentFrame ? d : null;
+  }).filter(Boolean) as Vehicle360DamageMarker[];
+
+  const openPoiModal = (h: Vehicle360Hotspot) => {
+    setActivePoi(h);
+    setActiveDamage(null);
+    if (isAutoSpinning) toggleAutoSpin();
+  };
+
+  const openDamageModal = (d: Vehicle360DamageMarker) => {
+    setActiveDamage(d);
+    setActivePoi(null);
+    if (isAutoSpinning) toggleAutoSpin();
+  };
 
   const markers = [
     ...currentHotspots.map(h => ({
@@ -48,8 +74,9 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
       y: h.posY,
       content: (
         <button 
-          onClick={(e) => { e.stopPropagation(); setActivePoi(h); setActiveDamage(null); }}
-          className="w-8 h-8 rounded-full bg-blue-500/80 text-white flex items-center justify-center shadow-lg hover:bg-blue-600 hover:scale-110 transition-transform"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); openPoiModal(h); }}
+          className="w-8 h-8 rounded-full bg-blue-500/90 text-white flex items-center justify-center shadow-lg hover:bg-blue-600 hover:scale-110 transition-transform cursor-pointer pointer-events-auto"
           aria-label={h.title}
         >
           <Info size={16} />
@@ -62,8 +89,9 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
       y: d.posY,
       content: (
         <button 
-          onClick={(e) => { e.stopPropagation(); setActiveDamage(d); setActivePoi(null); }}
-          className="w-8 h-8 rounded-full bg-red-500/80 text-white flex items-center justify-center shadow-lg hover:bg-red-600 hover:scale-110 transition-transform"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); openDamageModal(d); }}
+          className="w-8 h-8 rounded-full bg-red-500/90 text-white flex items-center justify-center shadow-lg hover:bg-red-600 hover:scale-110 transition-transform cursor-pointer pointer-events-auto"
           aria-label={d.title}
         >
           <AlertTriangle size={16} />
@@ -103,43 +131,32 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
         />
         
         <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none">
-          <div className="bg-black/50 backdrop-blur text-white px-3 py-1 rounded-full text-sm flex gap-2">
+          <div className="bg-black/50 backdrop-blur text-white px-3 py-1 rounded-full text-sm flex gap-2 shadow-sm">
             <span>Arraste para girar</span>
           </div>
         </div>
       </div>
 
-      {/* Detail Panel */}
-      {(activePoi || activeDamage) && (
-        <div className="p-4 bg-gray-50 border-t border-gray-200">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                {activeDamage ? <AlertTriangle className="text-red-500" size={18} /> : <Info className="text-blue-500" size={18} />}
-                {activeDamage ? activeDamage.title : activePoi?.title}
-              </h4>
-              <p className="text-sm text-gray-600 mt-1">
-                {activeDamage ? activeDamage.description : activePoi?.description}
-              </p>
-            </div>
-            <button 
-              onClick={() => { setActivePoi(null); setActiveDamage(null); }}
-              className="text-sm text-gray-500 hover:text-gray-900 px-2 py-1"
-            >
-              Fechar
-            </button>
-          </div>
+      <MarkerDetailModal 
+        isOpen={!!activePoi}
+        onClose={() => setActivePoi(null)}
+        type="poi"
+        title={activePoi?.title || ''}
+        description={activePoi?.description}
+        frameNumber={activePoi?.frameNumber}
+        images={activePoi?.imageUrl ? [{ url: activePoi.imageUrl, order: 0 }] : []}
+      />
 
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {activePoi?.imageUrl && (
-              <img src={activePoi.imageUrl} alt={activePoi.title} className="h-32 object-cover rounded-lg shadow-sm" />
-            )}
-            {activeDamage?.images?.map(img => (
-              <img key={img.id} src={img.imageUrl} alt={activeDamage.title} className="h-32 object-cover rounded-lg shadow-sm" />
-            ))}
-          </div>
-        </div>
-      )}
+      <MarkerDetailModal 
+        isOpen={!!activeDamage}
+        onClose={() => setActiveDamage(null)}
+        type="damage"
+        title={activeDamage?.title || ''}
+        description={activeDamage?.description}
+        category={activeDamage?.category}
+        frameNumber={activeDamage?.frameNumber}
+        images={activeDamage?.images?.sort((a, b) => a.orderIndex - b.orderIndex).map((img, i) => ({ url: img.imageUrl, order: i })) || []}
+      />
     </div>
   );
 }

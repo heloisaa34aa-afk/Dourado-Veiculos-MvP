@@ -15,10 +15,11 @@ export const vehicle360Service = {
       .select(`
         *,
         frames:vehicle_360_frames(*),
-        hotspots:vehicle_360_hotspots(*),
+        hotspots:vehicle_360_hotspots(*, positions:vehicle_360_hotspot_positions(*)),
         damage_markers:vehicle_360_damage_markers(
           *,
-          images:vehicle_360_damage_images(*)
+          images:vehicle_360_damage_images(*),
+          positions:vehicle_360_damage_marker_positions(*)
         )
       `)
       .eq('vehicle_id', vehicleId)
@@ -65,6 +66,14 @@ export const vehicle360Service = {
         active: h.active,
         createdAt: h.created_at,
         updatedAt: h.updated_at,
+        positions: h.positions?.map((p: any) => ({
+          id: p.id,
+          frameNumber: p.frame_number,
+          posX: p.pos_x,
+          posY: p.pos_y,
+          visible: p.visible,
+          isKeyframe: p.is_keyframe,
+        })) || []
       })) || [],
       damageMarkers: project.damage_markers?.map((d: any) => ({
         id: d.id,
@@ -84,6 +93,14 @@ export const vehicle360Service = {
           storagePath: i.storage_path,
           orderIndex: i.order_index,
           createdAt: i.created_at,
+        })) || [],
+        positions: d.positions?.map((p: any) => ({
+          id: p.id,
+          frameNumber: p.frame_number,
+          posX: p.pos_x,
+          posY: p.pos_y,
+          visible: p.visible,
+          isKeyframe: p.is_keyframe,
         })) || []
       })) || []
     } as any;
@@ -96,10 +113,11 @@ export const vehicle360Service = {
       .select(`
         *,
         frames:vehicle_360_frames(*),
-        hotspots:vehicle_360_hotspots(*),
+        hotspots:vehicle_360_hotspots(*, positions:vehicle_360_hotspot_positions(*)),
         damage_markers:vehicle_360_damage_markers(
           *,
-          images:vehicle_360_damage_images(*)
+          images:vehicle_360_damage_images(*),
+          positions:vehicle_360_damage_marker_positions(*)
         )
       `)
       .eq('vehicle_id', vehicleId)
@@ -141,6 +159,14 @@ export const vehicle360Service = {
         active: h.active,
         createdAt: h.created_at,
         updatedAt: h.updated_at,
+        positions: h.positions?.map((p: any) => ({
+          id: p.id,
+          frameNumber: p.frame_number,
+          posX: p.pos_x,
+          posY: p.pos_y,
+          visible: p.visible,
+          isKeyframe: p.is_keyframe,
+        })) || []
       })) || [],
       damageMarkers: project.damage_markers?.map((d: any) => ({
         id: d.id,
@@ -160,6 +186,14 @@ export const vehicle360Service = {
           storagePath: i.storage_path,
           orderIndex: i.order_index,
           createdAt: i.created_at,
+        })) || [],
+        positions: d.positions?.map((p: any) => ({
+          id: p.id,
+          frameNumber: p.frame_number,
+          posX: p.pos_x,
+          posY: p.pos_y,
+          visible: p.visible,
+          isKeyframe: p.is_keyframe,
         })) || []
       })) || []
     } as any;
@@ -305,7 +339,7 @@ export const vehicle360Service = {
   },
 
   async createHotspot(hotspot: Omit<Vehicle360Hotspot, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
       .from('vehicle_360_hotspots')
       .insert({
         project_id: hotspot.projectId,
@@ -317,9 +351,24 @@ export const vehicle360Service = {
         image_url: hotspot.imageUrl,
         storage_path: hotspot.storagePath,
         active: hotspot.active
-      });
+      })
+      .select()
+      .single();
 
     if (error) throw error;
+    
+    const { error: posError } = await supabase
+      .from('vehicle_360_hotspot_positions')
+      .insert({
+        hotspot_id: inserted.id,
+        frame_number: hotspot.frameNumber,
+        pos_x: hotspot.posX,
+        pos_y: hotspot.posY,
+        visible: true,
+        is_keyframe: true
+      });
+      
+    if (posError) throw posError;
   },
 
   async deleteHotspot(hotspotId: string): Promise<void> {
@@ -377,6 +426,19 @@ export const vehicle360Service = {
 
     if (markerError) throw markerError;
 
+    const { error: posError } = await supabase
+      .from('vehicle_360_damage_marker_positions')
+      .insert({
+        marker_id: insertedMarker.id,
+        frame_number: marker.frameNumber,
+        pos_x: marker.posX,
+        pos_y: marker.posY,
+        visible: true,
+        is_keyframe: true
+      });
+      
+    if (posError) throw posError;
+
     if (images.length > 0) {
       const { error: imagesError } = await supabase
         .from('vehicle_360_damage_images')
@@ -423,6 +485,50 @@ export const vehicle360Service = {
 
     if (error) throw error;
   },
-  
 
+  async replaceHotspotPositions(hotspotId: string, positions: { frameNumber: number; posX: number; posY: number; visible: boolean; isKeyframe: boolean }[]): Promise<void> {
+    const { error: delError } = await supabase
+      .from('vehicle_360_hotspot_positions')
+      .delete()
+      .eq('hotspot_id', hotspotId);
+    
+    if (delError) throw delError;
+
+    if (positions.length > 0) {
+      const { error: insError } = await supabase
+        .from('vehicle_360_hotspot_positions')
+        .insert(positions.map(p => ({
+          hotspot_id: hotspotId,
+          frame_number: p.frameNumber,
+          pos_x: p.posX,
+          pos_y: p.posY,
+          visible: p.visible,
+          is_keyframe: p.isKeyframe
+        })));
+      if (insError) throw insError;
+    }
+  },
+
+  async replaceDamagePositions(markerId: string, positions: { frameNumber: number; posX: number; posY: number; visible: boolean; isKeyframe: boolean }[]): Promise<void> {
+    const { error: delError } = await supabase
+      .from('vehicle_360_damage_marker_positions')
+      .delete()
+      .eq('marker_id', markerId);
+    
+    if (delError) throw delError;
+
+    if (positions.length > 0) {
+      const { error: insError } = await supabase
+        .from('vehicle_360_damage_marker_positions')
+        .insert(positions.map(p => ({
+          marker_id: markerId,
+          frame_number: p.frameNumber,
+          pos_x: p.posX,
+          pos_y: p.posY,
+          visible: p.visible,
+          is_keyframe: p.isKeyframe
+        })));
+      if (insError) throw insError;
+    }
+  },
 };

@@ -165,6 +165,15 @@ export interface Vehicle360Frame {
   updatedAt: string;
 }
 
+export interface Vehicle360MarkerPosition {
+  id: string;
+  frameNumber: number;
+  posX: number;
+  posY: number;
+  visible: boolean;
+  isKeyframe: boolean;
+}
+
 export interface Vehicle360Hotspot {
   id: string;
   projectId: string;
@@ -178,6 +187,7 @@ export interface Vehicle360Hotspot {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  positions?: Vehicle360MarkerPosition[];
 }
 
 export interface Vehicle360DamageMarker {
@@ -192,6 +202,7 @@ export interface Vehicle360DamageMarker {
   images?: Vehicle360DamageImage[];
   createdAt: string;
   updatedAt: string;
+  positions?: Vehicle360MarkerPosition[];
 }
 
 export interface Vehicle360DamageImage {

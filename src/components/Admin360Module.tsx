@@ -3,6 +3,8 @@ import { useVehicle360 } from '../hooks/useVehicle360';
 import { vehicle360Service } from '../services/vehicle360.service';
 import { ImageCoordinateStage } from './360/ImageCoordinateStage';
 import { FrameUploader } from './360/FrameUploader';
+import { MarkerTrackingEditor } from "./360/MarkerTrackingEditor";
+import { MarkerStatusBadge } from "./360/MarkerStatusBadge";
 import { Trash2, CheckCircle2, ChevronLeft, ChevronRight, Plus, AlertTriangle, AlertCircle, X, Info, Edit2, Move } from 'lucide-react';
 import { Car, Vehicle360Hotspot, Vehicle360DamageMarker } from '../types';
 import { validation360 } from '../utils/validation360';
@@ -58,6 +60,7 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
   const [editingPoi, setEditingPoi] = useState<Vehicle360Hotspot | null>(null);
   const [editingDamage, setEditingDamage] = useState<Vehicle360DamageMarker | null>(null);
   const [repositioningId, setRepositioningId] = useState<string | null>(null);
+  const [trackingMarker, setTrackingMarker] = useState<{ id: string, type: "poi" | "damage" } | null>(null);
   
   const [poiForm, setPoiForm] = useState({ title: '', description: '', file: null as File | null, posX: 0, posY: 0 });
   const [damageForm, setDamageForm] = useState({ title: '', description: '', category: 'Outro', files: [] as File[], posX: 0, posY: 0 });
@@ -95,13 +98,25 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
 
   // Markers shown exactly on current frame
   const stageMarkers = [
-    ...hotspots.filter(h => h.frameNumber === currentFrame).map(h => ({ 
+    ...hotspots.map(h => {
+      const pos = h.positions?.find(p => p.frameNumber === currentFrame);
+      if (pos) {
+         return pos.visible ? { ...h, posX: pos.posX, posY: pos.posY } : null;
+      }
+      return h.frameNumber === currentFrame ? h : null;
+    }).filter(Boolean).map((h: any) => ({ 
       id: h.id, 
       x: h.posX, 
       y: h.posY, 
       content: <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg ${repositioningId === h.id ? 'bg-yellow-500 animate-pulse' : 'bg-blue-500/80 hover:scale-110 transition-transform cursor-pointer'}`}><Info size={16} /></div> 
     })),
-    ...damageMarkers.filter(d => d.frameNumber === currentFrame).map(d => ({ 
+    ...damageMarkers.map(d => {
+      const pos = d.positions?.find(p => p.frameNumber === currentFrame);
+      if (pos) {
+         return pos.visible ? { ...d, posX: pos.posX, posY: pos.posY } : null;
+      }
+      return d.frameNumber === currentFrame ? d : null;
+    }).filter(Boolean).map((d: any) => ({ 
       id: d.id, 
       x: d.posX, 
       y: d.posY, 
@@ -249,6 +264,27 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
 
         {totalFrames === 0 ? (
           <FrameUploader onUpload={uploadFrames} uploading={uploading} progress={uploadProgress} />
+        ) : trackingMarker ? (
+          (() => {
+            const isPoi = trackingMarker.type === 'poi';
+            const marker = isPoi 
+              ? hotspots.find(h => h.id === trackingMarker.id) 
+              : damageMarkers.find(d => d.id === trackingMarker.id);
+            if (!marker) return null;
+            return (
+              <MarkerTrackingEditor
+                markerId={marker.id}
+                markerType={trackingMarker.type}
+                initialFrame={marker.frameNumber}
+                initialX={marker.posX}
+                initialY={marker.posY}
+                existingPositions={marker.positions}
+                frames={frames}
+                onSave={handleSaveTracking}
+                onCancel={() => setTrackingMarker(null)}
+              />
+            );
+          })()
         ) : (
           <div className="space-y-4">
             <div className="flex gap-2 justify-center mb-2">
@@ -341,12 +377,13 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
                       <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentFrame(h.frameNumber)}>
                         <img src={h.imageUrl} alt="" className="w-12 h-12 rounded object-cover border border-gray-200" />
                         <div>
-                          <div className="font-semibold text-gray-900">{h.title} <span className="text-xs font-normal text-gray-500 ml-2">Frame {h.frameNumber + 1}</span></div>
+                          <div className="font-semibold text-gray-900 flex items-center gap-2">{h.title} <span className="text-xs font-normal text-gray-500">Origem: Frame {h.frameNumber + 1}</span> <MarkerStatusBadge positions={h.positions} totalFrames={totalFrames} /></div>
                           <div className="text-sm text-gray-500">{h.description}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={() => setCurrentFrame(h.frameNumber)} className="p-2 text-gray-600 hover:bg-gray-100 rounded" title="Localizar"><Info size={16}/></button>
+                        <button onClick={() => setTrackingMarker({ id: h.id, type: 'poi' })} className="px-3 py-1 text-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md font-medium">Rastrear no giro</button>
                         <button onClick={() => setRepositioningId(h.id)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded" title="Reposicionar"><Move size={16}/></button>
                         <button onClick={() => startEditPoi(h)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16}/></button>
                         <button onClick={() => { if(window.confirm('Excluir este ponto?')) deleteHotspot(h); }} className="p-2 text-red-500 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16}/></button>
@@ -395,12 +432,13 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
                       <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentFrame(d.frameNumber)}>
                         {d.images?.[0] && <img src={d.images[0].imageUrl} alt="" className="w-12 h-12 rounded object-cover border border-gray-200" />}
                         <div>
-                          <div className="font-semibold text-gray-900">{d.title} <span className="text-xs font-normal text-gray-500 ml-2">Frame {d.frameNumber + 1}</span></div>
+                          <div className="font-semibold text-gray-900 flex items-center gap-2">{d.title} <span className="text-xs font-normal text-gray-500">Origem: Frame {d.frameNumber + 1}</span> <MarkerStatusBadge positions={d.positions} totalFrames={totalFrames} /></div>
                           <div className="text-sm text-gray-500">[{d.category}] {d.description}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={() => setCurrentFrame(d.frameNumber)} className="p-2 text-gray-600 hover:bg-gray-100 rounded" title="Localizar"><Info size={16}/></button>
+                        <button onClick={() => setTrackingMarker({ id: d.id, type: 'damage' })} className="px-3 py-1 text-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md font-medium">Rastrear no giro</button>
                         <button onClick={() => setRepositioningId(d.id)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded" title="Reposicionar"><Move size={16}/></button>
                         <button onClick={() => startEditDamage(d)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16}/></button>
                         <button onClick={() => { if(window.confirm('Excluir esta avaria?')) deleteDamageMarker(d); }} className="p-2 text-red-500 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16}/></button>
@@ -454,3 +492,18 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
     </div>
   );
 }
+  const handleSaveTracking = async (positions: any[]) => {
+    if (!trackingMarker) return;
+    try {
+      if (trackingMarker.type === 'poi') {
+        await vehicle360Service.replaceHotspotPositions(trackingMarker.id, positions);
+      } else {
+        await vehicle360Service.replaceDamagePositions(trackingMarker.id, positions);
+      }
+      await reload();
+      setTrackingMarker(null);
+    } catch(err: any) {
+      setLocalError(err.message);
+    }
+  };
+
