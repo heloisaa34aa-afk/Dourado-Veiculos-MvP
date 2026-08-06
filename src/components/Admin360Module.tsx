@@ -218,6 +218,21 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
     setCurrentFrame(d.frameNumber);
   };
 
+  const handleSaveTracking = async (positions: any[]) => {
+    if (!trackingMarker) return;
+    try {
+      if (trackingMarker.type === 'poi') {
+        await vehicle360Service.replaceHotspotPositions(trackingMarker.id, positions);
+      } else {
+        await vehicle360Service.replaceDamagePositions(trackingMarker.id, positions);
+      }
+      await reload();
+      setTrackingMarker(null);
+    } catch(err: any) {
+      setLocalError(err.message);
+    }
+  };
+
   return (
     <div className="space-y-6 relative">
       {displayError && (
@@ -492,18 +507,3 @@ function Vehicle360Editor({ vehicleId }: { vehicleId: string }) {
     </div>
   );
 }
-  const handleSaveTracking = async (positions: any[]) => {
-    if (!trackingMarker) return;
-    try {
-      if (trackingMarker.type === 'poi') {
-        await vehicle360Service.replaceHotspotPositions(trackingMarker.id, positions);
-      } else {
-        await vehicle360Service.replaceDamagePositions(trackingMarker.id, positions);
-      }
-      await reload();
-      setTrackingMarker(null);
-    } catch(err: any) {
-      setLocalError(err.message);
-    }
-  };
-

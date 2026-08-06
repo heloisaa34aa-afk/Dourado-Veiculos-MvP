@@ -123,7 +123,12 @@ export const vehicle360Service = {
       .eq('vehicle_id', vehicleId)
       .maybeSingle();
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === '42P01') {
+        throw new Error("Erro de banco de dados: A tabela de rastreamento de marcadores 360 não existe. Por favor, aplique as migrations pendentes no Supabase.");
+      }
+      throw error;
+    }
     if (!project) return null;
 
     // Convert snake_case to camelCase

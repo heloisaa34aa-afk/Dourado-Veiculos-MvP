@@ -1,8 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE vehicle_360_hotspot_positions (
+CREATE TABLE IF NOT EXISTS public.vehicle_360_hotspot_positions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    hotspot_id UUID NOT NULL REFERENCES vehicle_360_hotspots(id) ON DELETE CASCADE,
+    hotspot_id UUID NOT NULL REFERENCES public.vehicle_360_hotspots(id) ON DELETE CASCADE,
     frame_number INTEGER NOT NULL,
     pos_x NUMERIC NOT NULL CHECK (pos_x >= 0 AND pos_x <= 100),
     pos_y NUMERIC NOT NULL CHECK (pos_y >= 0 AND pos_y <= 100),
@@ -13,9 +13,12 @@ CREATE TABLE vehicle_360_hotspot_positions (
     UNIQUE(hotspot_id, frame_number)
 );
 
-CREATE TABLE vehicle_360_damage_marker_positions (
+CREATE INDEX IF NOT EXISTS idx_360_hotspot_positions_lookup 
+ON public.vehicle_360_hotspot_positions(hotspot_id, frame_number);
+
+CREATE TABLE IF NOT EXISTS public.vehicle_360_damage_marker_positions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    marker_id UUID NOT NULL REFERENCES vehicle_360_damage_markers(id) ON DELETE CASCADE,
+    marker_id UUID NOT NULL REFERENCES public.vehicle_360_damage_markers(id) ON DELETE CASCADE,
     frame_number INTEGER NOT NULL,
     pos_x NUMERIC NOT NULL CHECK (pos_x >= 0 AND pos_x <= 100),
     pos_y NUMERIC NOT NULL CHECK (pos_y >= 0 AND pos_y <= 100),
@@ -26,11 +29,18 @@ CREATE TABLE vehicle_360_damage_marker_positions (
     UNIQUE(marker_id, frame_number)
 );
 
--- Migração dos marcadores existentes
-INSERT INTO vehicle_360_hotspot_positions (hotspot_id, frame_number, pos_x, pos_y, visible, is_keyframe)
-SELECT id, frame_number, pos_x, pos_y, true, true
-FROM vehicle_360_hotspots;
+CREATE INDEX IF NOT EXISTS idx_360_damage_positions_lookup 
+ON public.vehicle_360_damage_marker_positions(marker_id, frame_number);
 
-INSERT INTO vehicle_360_damage_marker_positions (marker_id, frame_number, pos_x, pos_y, visible, is_keyframe)
+-- Migração dos marcadores existentes
+INSERT INTO public.vehicle_360_hotspot_positions (hotspot_id, frame_number, pos_x, pos_y, visible, is_keyframe)
 SELECT id, frame_number, pos_x, pos_y, true, true
-FROM vehicle_360_damage_markers;
+FROM public.vehicle_360_hotspots
+ON CONFLICT (hotspot_id, frame_number) DO NOTHING;
+
+INSERT INTO public.vehicle_360_damage_marker_positions (marker_id, frame_number, pos_x, pos_y, visible, is_keyframe)
+SELECT id, frame_number, pos_x, pos_y, true, true
+FROM public.vehicle_360_damage_markers
+ON CONFLICT (marker_id, frame_number) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';
