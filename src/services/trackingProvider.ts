@@ -44,18 +44,47 @@ export const trackingProvider: MarkerTrackingProvider = {
       throw new Error("Rastreamento automático indisponível (VITE_TRACKING_ENDPOINT não configurado)");
     }
     
-    const response = await fetch(`${endpoint}/track`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(request)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Erro na API de rastreamento: ${response.statusText}`);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+      
+      const response = await fetch(`${endpoint}/track`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Serviço de rastreamento não encontrado (Erro 404). Verifique a URL do Modal.");
+        }
+        if (response.status === 503) {
+          throw new Error("Serviço de rastreamento temporariamente indisponível (Erro 503).");
+        }
+        
+        let errorMsg = response.statusText;
+        try {
+          const errData = await response.json();
+          if (errData.detail) errorMsg = errData.detail;
+        } catch (e) {}
+        
+        throw new Error(`Falha no rastreamento: ${errorMsg}`);
+      }
+      
+      return await response.json();
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error("Timeout: O servidor demorou muito para responder (pode estar iniciando o cold start, tente novamente).");
+      }
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+         throw new Error("Erro de conexão ou CORS. Verifique se o serviço está no ar e se as origens permitidas estão configuradas.");
+      }
+      throw error;
     }
-    
-    return await response.json();
   }
 }

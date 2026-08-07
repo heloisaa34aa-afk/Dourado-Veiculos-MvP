@@ -20,7 +20,8 @@ image = (
         "pydantic",
         "requests",
         "opencv-python",
-        "numpy"
+        "numpy",
+        "starlette"
     )
 )
 
@@ -34,11 +35,31 @@ with image.imports():
     from io import BytesIO
     from PIL import Image
     from tapnet.torch import tapir_model
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
     from typing import List
 
 web_app = FastAPI(title="TAPIR Tracking Service")
+
+# CORS Configuration
+origins_str = os.environ.get("ALLOWED_ORIGINS", "")
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://ais-dev-eqzpqqpztelmdrjtgkatda-280799738711.us-east1.run.app",
+    "https://ais-pre-eqzpqqpztelmdrjtgkatda-280799738711.us-east1.run.app"
+]
+if origins_str:
+    origins.extend([o.strip() for o in origins_str.split(",") if o.strip()])
+
+web_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class TrackingRequest(BaseModel):
     frames: List[str]
@@ -55,16 +76,15 @@ def preprocess_frames(frames: torch.Tensor):
     return frames
 
 def load_video(urls: List[str]):
-    # In production, we'd do parallel downloads. Here we just loop.
     images = []
     for url in urls:
-        resp = requests.get(url)
+        resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         img = Image.open(BytesIO(resp.content)).convert('RGB')
         images.append(np.array(img))
     return np.stack(images)
 
-@app.cls(gpu="any", keep_warm=1)
+@app.cls(gpu="any", timeout=300)
 class Tracker:
     @modal.enter()
     def load_model(self):
@@ -79,23 +99,22 @@ class Tracker:
     @modal.method()
     def track(self, req: TrackingRequest):
         print(f"Tracking {len(req.frames)} frames...")
-        # 1. Load images
-        video = load_video(req.frames) # shape: (T, H, W, C)
+        try:
+            video = load_video(req.frames) # shape: (T, H, W, C)
+        except Exception as e:
+            raise Exception(f"Failed to load images: {str(e)}")
+
         T, H, W, C = video.shape
         
         video_tensor = torch.from_numpy(video).to(self.device)
         video_tensor = preprocess_frames(video_tensor)[None] # (1, T, H, W, C)
 
-        # 2. Prepare query points: (t, y, x) in absolute pixels
-        # UI sends (0-100) percentages for X and Y.
-        # Note: TAPNet uses (t, y, x) format
         y_px = req.initialY / 100.0 * H
         x_px = req.initialX / 100.0 * W
         
         query_points = torch.tensor([[req.initialFrame, y_px, x_px]], dtype=torch.float32, device=self.device)
         query_points = query_points[None] # (1, 1, 3)
 
-        # 3. Run Inference
         with torch.no_grad():
             outputs = self.model(video_tensor, query_points, is_training=False, query_chunk_size=1)
             
@@ -103,14 +122,12 @@ class Tracker:
             occlusion = outputs['occlusion'][0, 0] # (T,)
             expected_dist = outputs['expected_dist'][0, 0] # (T,)
             
-            # Postprocess to get visibility
             visibles = (1 - F.sigmoid(occlusion)) * (1 - F.sigmoid(expected_dist)) > 0.5
             
         tracks = tracks.cpu().numpy()
         visibles = visibles.cpu().numpy()
         confidence = (1 - F.sigmoid(expected_dist)).cpu().numpy()
         
-        # 4. Format Output
         results = []
         for t in range(T):
             x = max(0, min(100, (tracks[t, 0] / W) * 100.0))
@@ -129,8 +146,19 @@ class Tracker:
             
         return {"positions": results}
 
-@app.function()
-@modal.web_endpoint(method="POST")
+@web_app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "Tracking Lab MVP"}
+
+@web_app.post("/track")
 def track_endpoint(req: TrackingRequest):
-    tracker = Tracker()
-    return tracker.track.remote(req)
+    try:
+        tracker = Tracker()
+        return tracker.track.remote(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.function(timeout=300)
+@modal.asgi_app()
+def fastapi_app():
+    return web_app
