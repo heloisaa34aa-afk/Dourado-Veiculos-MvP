@@ -172,6 +172,7 @@ export interface Vehicle360MarkerPosition {
   posY: number;
   visible: boolean;
   isKeyframe: boolean;
+  confidence?: number;
 }
 
 export interface Vehicle360Hotspot {

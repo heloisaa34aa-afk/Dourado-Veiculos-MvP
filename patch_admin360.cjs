@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+const fs = require('fs');
+
+const content = `import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useVehicle360 } from '../hooks/useVehicle360';
 import { vehicle360Service } from '../services/vehicle360.service';
 import { ImageCoordinateStage } from './360/ImageCoordinateStage';
@@ -126,7 +128,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
       setTrackedPositions(prev => {
         const filtered = prev.filter(p => p.frameNumber !== currentFrame);
         return [...filtered, {
-          id: `new-${Date.now()}`,
+          id: \`new-\${Date.now()}\`,
           frameNumber: currentFrame,
           posX: x,
           posY: y,
@@ -153,7 +155,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
 
       setTrackProgress('Rastreando com TAPIR...');
       
-      const response = await fetch(`${endpoint}/track`, {
+      const response = await fetch(\`\${endpoint}/track\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -430,7 +432,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
                           const existing = prev.find(p => p.frameNumber === currentFrame);
                           const filtered = prev.filter(p => p.frameNumber !== currentFrame);
                           return [...filtered, {
-                            id: existing ? existing.id : `new-${Date.now()}`,
+                            id: existing ? existing.id : \`new-\${Date.now()}\`,
                             frameNumber: currentFrame,
                             posX: existing ? existing.posX : 50,
                             posY: existing ? existing.posY : 50,
@@ -508,7 +510,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
            <div className="space-y-2">
               <button 
                 onClick={isComplete ? unpublishProject : publishProject} 
-                className={`w-full py-3 font-bold rounded-xl shadow-sm transition-colors ${isComplete ? 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                className={\`w-full py-3 font-bold rounded-xl shadow-sm transition-colors \${isComplete ? 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50' : 'bg-green-600 text-white hover:bg-green-700'}\`}
               >
                 {isComplete ? 'Despublicar e Ocultar' : 'Publicar 360°'}
               </button>
@@ -597,14 +599,14 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
             </button>
             <div>
               <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                <CarIcon size={20} className="text-indigo-600" />
+                <Car size={20} className="text-indigo-600" />
                 {car.brand} {car.model}
               </h1>
               <div className="text-xs font-medium text-gray-500">{car.plateEnd} • {totalFrames} frames</div>
             </div>
           </div>
           <div className="flex items-center gap-3">
-             <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${project.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+             <div className={\`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider \${project.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}\`}>
                {project.status === 'completed' ? 'Publicado' : 'Rascunho'}
              </div>
           </div>
@@ -681,7 +683,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
                      <button 
                        key={f.id}
                        onClick={() => setCurrentFrame(idx)}
-                       className={`relative h-12 sm:h-16 aspect-video shrink-0 rounded-md overflow-hidden border-2 transition-all ${idx === currentFrame ? 'ring-2 ring-white scale-105 z-10' : 'hover:border-gray-500'} ${frameClasses}`}
+                       className={\`relative h-12 sm:h-16 aspect-video shrink-0 rounded-md overflow-hidden border-2 transition-all \${idx === currentFrame ? 'ring-2 ring-white scale-105 z-10' : 'hover:border-gray-500'} \${frameClasses}\`}
                      >
                        <img src={f.imageUrl} alt="" className="w-full h-full object-cover" />
                        <div className="absolute top-0 left-0 bg-black/60 text-white text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-br font-mono">{idx + 1}</div>
@@ -695,7 +697,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
          
          {/* Right Panel */}
          <div 
-            className={`absolute md:static top-0 right-0 h-full w-[300px] sm:w-[360px] bg-white border-l border-gray-200 flex flex-col shadow-2xl z-40 transition-transform duration-300 ${panelOpen ? 'translate-x-0' : 'translate-x-full md:hidden'}`}
+            className={\`absolute md:static top-0 right-0 h-full w-[300px] sm:w-[360px] bg-white border-l border-gray-200 flex flex-col shadow-2xl z-40 transition-transform duration-300 \${panelOpen ? 'translate-x-0' : 'translate-x-full md:hidden'}\`}
             style={{ display: panelOpen ? 'flex' : 'none' }}
          >
              {renderRightPanel()}
@@ -704,3 +706,6 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/components/Admin360Module.tsx', content);

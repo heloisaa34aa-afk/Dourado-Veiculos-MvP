@@ -10,12 +10,13 @@ import {
   MessageSquare, UserCheck, Calendar, Gauge, Fuel, SlidersHorizontal,
   DollarSign, Package, CheckCircle2, ChevronRight, RefreshCw, Upload, Image as ImageIcon,
   Users, FileSpreadsheet, ClipboardList, MapPin, RotateCcw
-} from 'lucide-react';
+, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Car as CarType, LeadMessage, CarCategory, Quote, UserProfile } from '../types';
 import { quoteService } from '../services/quote.service';
 import { settingsService, CompanySettings } from '../services/settings.service';
 import { supabase } from '../lib/supabase';
+import { TrackingLab } from "./TrackingLab";
 import { Admin360Module } from './Admin360Module';
 import { vehicleMediaService } from '../services/vehicleMedia.service';
 import { useCategories } from '../hooks/useCategories';
@@ -41,7 +42,7 @@ export default function AdminPanel({
   onDeleteMessage
 }: AdminPanelProps) {
   // Navigation active tab
-  const [activeSection, setActiveSection] = useState<'dashboard' | 'vehicles' | 'messages' | 'quotes' | 'users' | 'settings' | 'vehicle360'>('dashboard');
+  const [activeSection, setActiveSection] = useState<'dashboard' | 'vehicles' | 'messages' | 'quotes' | 'users' | 'settings' | 'vehicle360' | 'trackingLab'>('dashboard');
 
   // Search and filter inside tables
   const [vehicleSearch, setVehicleSearch] = useState('');
@@ -562,6 +563,18 @@ export default function AdminPanel({
             <RotateCcw className="w-4 h-4" />
             <span>Veículo 360°</span>
           </button>
+          <button
+            onClick={() => setActiveSection('trackingLab')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
+              activeSection === 'trackingLab'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Activity className={`w-5 h-5 ${activeSection === 'trackingLab' ? 'text-white' : 'text-slate-400'}`} />
+            Tracking Lab 360
+          </button>
+
 
           <button
             onClick={() => setActiveSection('quotes')}
@@ -649,6 +662,7 @@ export default function AdminPanel({
               {activeSection === 'users' && 'Gerenciamento de Usuários'}
               {activeSection === 'settings' && 'Configurações da Concessionária'}
               {activeSection === 'vehicle360' && 'Módulo Inspetor Veículo 360°'}
+              {activeSection === 'trackingLab' && 'Tracking Lab 360° (MVP)'}
             </h2>
             <p className="text-sm text-slate-500 mt-1">
               {activeSection === 'dashboard' && 'Acompanhe as estatísticas de cliques, contatos e distribuição do seu estoque.'}
@@ -658,6 +672,7 @@ export default function AdminPanel({
               {activeSection === 'users' && 'Visualize os clientes e administradores registrados na plataforma.'}
               {activeSection === 'settings' && 'Gerencie informações da loja, canais de atendimento e canais sociais.'}
               {activeSection === 'vehicle360' && 'Gerencie rotação de imagens 360° e marque os pontos de avarias para exibição pública.'}
+              {activeSection === 'trackingLab' && 'Validação e otimização do rastreamento de pontos usando TAPIR.'}
             </p>
           </div>
 
@@ -1394,6 +1409,9 @@ export default function AdminPanel({
         {/* 3.4. SECTION: VEHICLE 360° */}
         {activeSection === 'vehicle360' && (
           <Admin360Module cars={cars} />
+        )}
+        {activeSection === 'trackingLab' && (
+          <TrackingLab cars={cars} />
         )}
 
       </main>
