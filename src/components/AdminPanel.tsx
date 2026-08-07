@@ -18,8 +18,11 @@ import { settingsService, CompanySettings } from '../services/settings.service';
 import { supabase } from '../lib/supabase';
 import { TrackingLab } from "./TrackingLab";
 import { Admin360Module } from './Admin360Module';
+import { ErrorBoundary } from './ErrorBoundary';
 import { vehicleMediaService } from '../services/vehicleMedia.service';
 import { useCategories } from '../hooks/useCategories';
+
+const trackingLabEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRACKING_LAB === 'true';
 
 
 interface AdminPanelProps {
@@ -563,17 +566,19 @@ export default function AdminPanel({
             <RotateCcw className="w-4 h-4" />
             <span>Veículo 360°</span>
           </button>
-          <button
-            onClick={() => setActiveSection('trackingLab')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
-              activeSection === 'trackingLab'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <Activity className={`w-5 h-5 ${activeSection === 'trackingLab' ? 'text-white' : 'text-slate-400'}`} />
-            Tracking Lab 360
-          </button>
+          {trackingLabEnabled && (
+            <button
+              onClick={() => setActiveSection('trackingLab')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                activeSection === 'trackingLab'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Activity className={`w-5 h-5 ${activeSection === 'trackingLab' ? 'text-white' : 'text-slate-400'}`} />
+              Tracking Lab 360
+            </button>
+          )}
 
 
           <button
@@ -649,7 +654,11 @@ export default function AdminPanel({
       </aside>
 
       {/* Main dashboard viewport */}
-      <main className="flex-1 p-4 sm:p-8 max-w-7xl mx-auto w-full space-y-8 overflow-x-hidden">
+      <main className={`flex-1 w-full overflow-x-hidden ${
+        activeSection === 'trackingLab' 
+          ? 'h-[calc(100vh-64px)] flex flex-col min-h-0 min-w-0' // assuming 64px is header or we just use h-full if admin panel has no top header for desktop
+          : 'p-4 sm:p-8 max-w-7xl mx-auto space-y-8'
+      }`}>
         
         {/* Top welcome banner */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-200">
@@ -1408,10 +1417,14 @@ export default function AdminPanel({
 
         {/* 3.4. SECTION: VEHICLE 360° */}
         {activeSection === 'vehicle360' && (
-          <Admin360Module cars={cars} />
+          <ErrorBoundary onBackToDashboard={() => setActiveSection('dashboard')}>
+            <Admin360Module cars={cars} />
+          </ErrorBoundary>
         )}
-        {activeSection === 'trackingLab' && (
-          <TrackingLab cars={cars} />
+        {activeSection === 'trackingLab' && trackingLabEnabled && (
+          <ErrorBoundary onBackToDashboard={() => setActiveSection('dashboard')}>
+            <TrackingLab cars={cars} />
+          </ErrorBoundary>
         )}
 
       </main>

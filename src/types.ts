@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -148,6 +149,8 @@ export interface Vehicle360Project {
   status: 'draft' | 'processing' | 'completed';
   frameCount: number;
   frames?: Vehicle360Frame[];
+  hotspots?: Vehicle360Hotspot[];
+  damageMarkers?: Vehicle360DamageMarker[];
   createdAt: string;
   updatedAt: string;
 }

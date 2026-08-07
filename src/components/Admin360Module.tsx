@@ -5,7 +5,7 @@ import { ImageCoordinateStage } from './360/ImageCoordinateStage';
 import { FrameUploader } from './360/FrameUploader';
 import { 
   Trash2, CheckCircle2, ChevronLeft, ChevronRight, Plus, AlertTriangle, AlertCircle, 
-  X, Info, Edit2, Move, Focus, Eye, EyeOff, Save, Play, ArrowLeft, Loader2, Camera, MousePointer2, Maximize, Minimize, PanelRightClose, PanelRightOpen
+  X, Info, Edit2, Move, Focus, Eye, EyeOff, Save, Play, ArrowLeft, Loader2, Camera, MousePointer2, Maximize, Minimize, PanelRightClose, PanelRightOpen, Car as CarIcon
 } from 'lucide-react';
 import { Car, Vehicle360Hotspot, Vehicle360DamageMarker, Vehicle360MarkerPosition } from '../types';
 

@@ -92,6 +92,10 @@ export function ImageCoordinateStage({
     };
   }, []);
 
+  useEffect(() => {
+    calculateRect();
+  }, [imageUrl]);
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (onPointerDown) onPointerDown(e);
     

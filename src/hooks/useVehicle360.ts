@@ -16,7 +16,7 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
   
   const startX = useRef(0);
   const startFrame = useRef(0);
-  const autoSpinInterval = useRef<NodeJS.Timeout>();
+  const autoSpinInterval = useRef<NodeJS.Timeout | null>(null);
 
   const loadProject = useCallback(async () => {
     try {
@@ -28,6 +28,41 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
       
       if (data && data.frames) {
         data.frames.sort((a, b) => a.frameNumber - b.frameNumber);
+        const totalFrames = data.frames.length;
+        let warned = false;
+
+        const processPositions = (positions: any[]) => {
+          if (!positions) return [];
+          const seenFrames = new Set();
+          const filtered = positions.filter((p) => {
+            if (p.frameNumber < 0 || p.frameNumber >= totalFrames) {
+              warned = true;
+              return false;
+            }
+            if (seenFrames.has(p.frameNumber)) {
+              warned = true;
+              return false; // deduplicate
+            }
+            seenFrames.add(p.frameNumber);
+            return true;
+          });
+          return filtered.sort((a, b) => a.frameNumber - b.frameNumber);
+        };
+
+        if (data.hotspots) {
+          data.hotspots.forEach(h => {
+            h.positions = processPositions(h.positions);
+          });
+        }
+        if (data.damageMarkers) {
+          data.damageMarkers.forEach(d => {
+            d.positions = processPositions(d.positions);
+          });
+        }
+        
+        if (warned && mode === 'admin') {
+          alert("Aviso: Foram ignoradas posições inválidas (duplicadas ou fora dos limites do projeto).");
+        }
       }
       setProject(data);
     } catch (err: any) {

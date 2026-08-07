@@ -72,6 +72,15 @@ function TrackingLabWorkspace({ vehicleId, car, onBack }: { vehicleId: string, c
   const [evaluation, setEvaluation] = useState<TrackingEvaluation | null>(null);
   const [initialFrame, setInitialFrame] = useState(0);
 
+  // Clear state when vehicle or selected marker changes
+  useEffect(() => {
+    setGroundTruth({});
+    setPredictions([]);
+    setEvaluation(null);
+    setInitialFrame(0);
+    // mode is handled separately or we can just leave it if it's already 'select_marker' when changing car
+  }, [vehicleId, selectedMarker?.id]);
+
   if (loading || !project) {
     return <div className="flex items-center justify-center p-20"><Loader2 className="animate-spin text-indigo-500 w-12 h-12" /></div>;
   }
@@ -278,7 +287,7 @@ function TrackingLabWorkspace({ vehicleId, car, onBack }: { vehicleId: string, c
   const currentFrameData = project.frames?.[currentFrame];
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-slate-50">
+    <div className="h-full min-h-0 min-w-0 flex flex-col bg-slate-50">
       <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm shrink-0">
          <div className="flex items-center gap-4">
            <button onClick={() => setMode('select_marker')} className="text-slate-500 hover:text-slate-800">
