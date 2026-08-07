@@ -1,0 +1,12 @@
+[
+  "tracking-service/test_api.py::test_aggregate_points_excessive_jump",
+  "tracking-service/test_api.py::test_aggregate_points_ideal",
+  "tracking-service/test_api.py::test_aggregate_points_outlier_rejection",
+  "tracking-service/test_api.py::test_aggregate_points_too_few",
+  "tracking-service/test_api.py::test_cors",
+  "tracking-service/test_api.py::test_generate_query_points",
+  "tracking-service/test_api.py::test_generate_query_points_clipping",
+  "tracking-service/test_api.py::test_load_video_limit_48",
+  "tracking-service/test_api.py::test_load_video_resizing",
+  "tracking-service/test_api.py::test_tracker_logic"
+]
