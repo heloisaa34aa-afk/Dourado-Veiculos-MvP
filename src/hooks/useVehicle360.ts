@@ -4,7 +4,7 @@ import { vehicle360Storage } from '../services/vehicle360.storage';
 import { validation360 } from '../utils/validation360';
 import { Vehicle360Project, Vehicle360Frame, Vehicle360Hotspot, Vehicle360DamageMarker } from '../types';
 
-export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'public') {
+export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'public', viewType: 'exterior' | 'interior' = 'exterior') {
   const [project, setProject] = useState<Vehicle360Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -23,8 +23,8 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
       setLoading(true);
       setError(null);
       const data = mode === 'public' 
-        ? await vehicle360Service.getPublishedProjectByVehicleId(vehicleId)
-        : await vehicle360Service.getProjectByVehicleId(vehicleId);
+        ? await vehicle360Service.getPublishedProjectByVehicleId(vehicleId, viewType)
+        : await vehicle360Service.getProjectByVehicleId(vehicleId, viewType);
       
       if (data && data.frames) {
         data.frames.sort((a, b) => a.frameNumber - b.frameNumber);
@@ -70,7 +70,7 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     } finally {
       setLoading(false);
     }
-  }, [vehicleId, mode]);
+  }, [vehicleId, mode, viewType]);
 
   useEffect(() => {
     loadProject();
@@ -365,7 +365,7 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     if (!project || !project.frames) return;
     setUploading(true); // Treat as upload to lock UI
     try {
-      await vehicle360Service.removeFrame(project.id, frame.id, project.frames);
+      await vehicle360Service.removeFrame(project.id, frame.id);
       if (frame.storagePath) {
         await vehicle360Storage.deleteStorageObject(frame.storagePath);
       }

@@ -15,6 +15,7 @@ interface Admin360ModuleProps {
 
 export function Admin360Module({ cars }: Admin360ModuleProps) {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
+  const [selectedViewType, setSelectedViewType] = useState<'exterior' | 'interior'>('exterior');
   
   if (cars.length === 0) {
     return <div className="p-8 text-center text-gray-500">Nenhum veículo cadastrado.</div>;
@@ -22,7 +23,7 @@ export function Admin360Module({ cars }: Admin360ModuleProps) {
 
   if (selectedVehicleId) {
     const car = cars.find(c => c.id === selectedVehicleId);
-    return <Vehicle360Workspace vehicleId={selectedVehicleId} car={car!} onBack={() => setSelectedVehicleId('')} />;
+    return <Vehicle360Workspace vehicleId={selectedVehicleId} car={car!} viewType={selectedViewType} onBack={() => setSelectedVehicleId('')} />;
   }
 
   return (
@@ -49,7 +50,7 @@ export function Admin360Module({ cars }: Admin360ModuleProps) {
   );
 }
 
-function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, car: Car, onBack: () => void }) {
+function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: string, car: Car, viewType: 'exterior' | 'interior', onBack: () => void }) {
   const { 
     project, loading, reload, currentFrame, setCurrentFrame, totalFrames,
     handlePointerDown, handlePointerMove, handlePointerUp,
@@ -57,7 +58,7 @@ function Vehicle360Workspace({ vehicleId, car, onBack }: { vehicleId: string, ca
     publishProject, unpublishProject, hotspots, damageMarkers,
     createHotspot, updateHotspot, deleteHotspot, 
     createDamageMarker, updateDamageMarker, deleteDamageMarker
-  } = useVehicle360(vehicleId, 'admin');
+  } = useVehicle360(vehicleId, 'admin', viewType);
 
   const [mode, setMode] = useState<'idle' | 'add_poi_pick' | 'add_damage_pick' | 'form' | 'tracking' | 'review' | 'manual_adjust' | 'checklist'>('idle');
   const [formType, setFormType] = useState<'poi' | 'damage'>('poi');

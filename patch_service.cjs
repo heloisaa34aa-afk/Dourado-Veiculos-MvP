@@ -1,95 +1,49 @@
 const fs = require('fs');
-let content = fs.readFileSync('src/services/vehicle360.service.ts', 'utf8');
+let code = fs.readFileSync('src/services/vehicle360.service.ts', 'utf8');
 
-const normalizeFn = `
-export function normalizeMarkerPosition(position: any) {
-  return {
-    frameNumber: Number(position.frameNumber),
-    posX: Number(position.posX),
-    posY: Number(position.posY),
-    visible: typeof position.visible === 'boolean' ? position.visible : true,
-    isKeyframe: typeof position.isKeyframe === 'boolean' ? position.isKeyframe : false,
-  };
-}
-`;
+code = code.replace(
+  "async getPublishedProjectByVehicleId(vehicleId: string): Promise<Vehicle360Project | null> {",
+  "async getPublishedProjectByVehicleId(vehicleId: string, viewType: 'exterior' | 'interior' = 'exterior'): Promise<Vehicle360Project | null> {"
+).replace(
+  ".eq('vehicle_id', vehicleId)\n      .eq('status', 'completed')",
+  ".eq('vehicle_id', vehicleId)\n      .eq('view_type', viewType)\n      .eq('status', 'completed')"
+);
 
-content = content.replace("export const vehicle360Service = {", normalizeFn + "\nexport const vehicle360Service = {");
+code = code.replace(
+  "async getProjectByVehicleId(vehicleId: string): Promise<Vehicle360Project | null> {",
+  "async getProjectByVehicleId(vehicleId: string, viewType: 'exterior' | 'interior' = 'exterior'): Promise<Vehicle360Project | null> {"
+).replace(
+  ".eq('vehicle_id', vehicleId)\n      .maybeSingle();",
+  ".eq('vehicle_id', vehicleId)\n      .eq('view_type', viewType)\n      .maybeSingle();"
+);
 
-const replaceHotspotPos = `  async replaceHotspotPositions(hotspotId: string, positions: any[]): Promise<void> {
-    const normalized = positions.map(normalizeMarkerPosition);
-    
-    // Upsert new positions
-    if (normalized.length > 0) {
-      const { error: upsertError } = await supabase
-        .from('vehicle_360_hotspot_positions')
-        .upsert(
-          normalized.map(p => ({
-            hotspot_id: hotspotId,
-            frame_number: p.frameNumber,
-            pos_x: p.posX,
-            pos_y: p.posY,
-            visible: p.visible,
-            is_keyframe: p.isKeyframe
-          })),
-          { onConflict: 'hotspot_id, frame_number' }
-        );
-      if (upsertError) throw upsertError;
-    }
+code = code.replace(
+  "async createProject(vehicleId: string): Promise<Vehicle360Project> {",
+  "async createProject(vehicleId: string, viewType: 'exterior' | 'interior' = 'exterior'): Promise<Vehicle360Project> {"
+).replace(
+  "const existing = await this.getProjectByVehicleId(vehicleId);",
+  "const existing = await this.getProjectByVehicleId(vehicleId, viewType);"
+).replace(
+  ".insert({ vehicle_id: vehicleId, status: 'draft' })",
+  ".insert({ vehicle_id: vehicleId, view_type: viewType, status: 'draft' })"
+).replace(
+  "const concurrentExisting = await this.getProjectByVehicleId(vehicleId);",
+  "const concurrentExisting = await this.getProjectByVehicleId(vehicleId, viewType);"
+);
 
-    // Delete removed positions
-    const frameNumbers = normalized.map(p => p.frameNumber);
-    const { error: delError } = await supabase
-      .from('vehicle_360_hotspot_positions')
-      .delete()
-      .eq('hotspot_id', hotspotId)
-      .not('frame_number', 'in', \`(\${frameNumbers.join(',')})\`);
-      
-    if (delError && frameNumbers.length > 0) {
-      // If there's an error deleting, at least we upserted
-      console.error('Error deleting old hotspot positions', delError);
-    } else if (frameNumbers.length === 0) {
-       await supabase.from('vehicle_360_hotspot_positions').delete().eq('hotspot_id', hotspotId);
-    }
-  },`;
+// add viewType to the returned mapped object for getProjectByVehicleId and getPublishedProjectByVehicleId
+code = code.replace(
+  "vehicleId: project.vehicle_id,",
+  "vehicleId: project.vehicle_id,\n      viewType: project.view_type,"
+);
+code = code.replace(
+  "vehicleId: project.vehicle_id,", // There are two mapping blocks, one in each get method
+  "vehicleId: project.vehicle_id,\n      viewType: project.view_type,"
+);
 
-content = content.replace(/  async replaceHotspotPositions\(hotspotId: string, positions: \{[^}]+\}\[\]\): Promise<void> \{[\s\S]*?if \(insError\) throw insError;\n    \}\n  \},/, replaceHotspotPos);
+code = code.replace(
+  "vehicleId: data.vehicle_id,",
+  "vehicleId: data.vehicle_id,\n      viewType: data.view_type,"
+);
 
-const replaceDamagePos = `  async replaceDamagePositions(markerId: string, positions: any[]): Promise<void> {
-    const normalized = positions.map(normalizeMarkerPosition);
-    
-    // Upsert new positions
-    if (normalized.length > 0) {
-      const { error: upsertError } = await supabase
-        .from('vehicle_360_damage_marker_positions')
-        .upsert(
-          normalized.map(p => ({
-            marker_id: markerId,
-            frame_number: p.frameNumber,
-            pos_x: p.posX,
-            pos_y: p.posY,
-            visible: p.visible,
-            is_keyframe: p.isKeyframe
-          })),
-          { onConflict: 'marker_id, frame_number' }
-        );
-      if (upsertError) throw upsertError;
-    }
-
-    // Delete removed positions
-    const frameNumbers = normalized.map(p => p.frameNumber);
-    const { error: delError } = await supabase
-      .from('vehicle_360_damage_marker_positions')
-      .delete()
-      .eq('marker_id', markerId)
-      .not('frame_number', 'in', \`(\${frameNumbers.join(',')})\`);
-      
-    if (delError && frameNumbers.length > 0) {
-      console.error('Error deleting old damage positions', delError);
-    } else if (frameNumbers.length === 0) {
-       await supabase.from('vehicle_360_damage_marker_positions').delete().eq('marker_id', markerId);
-    }
-  },`;
-
-content = content.replace(/  async replaceDamagePositions\(markerId: string, positions: \{[^}]+\}\[\]\): Promise<void> \{[\s\S]*?if \(insError\) throw insError;\n    \}\n  \},/, replaceDamagePos);
-
-fs.writeFileSync('src/services/vehicle360.service.ts', content);
+fs.writeFileSync('src/services/vehicle360.service.ts', code);

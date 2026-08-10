@@ -1,53 +1,26 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+const fs = require('fs');
+let code = fs.readFileSync('src/App.tsx', 'utf8');
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Routes, Route, useNavigate, Navigate, useLocation, useParams } from 'react-router-dom';
-import { 
-  SlidersHorizontal, Search, Phone, ShieldCheck, Mail, MapPin, 
-  HelpCircle, Sparkles, Star, DollarSign, Calculator, RotateCcw,
-  CheckCircle, ArrowRight, Car as CarIcon, Gauge, Calendar, Fuel
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Car, LeadMessage, CarCategory, UserProfile } from './types';
-import Header from './components/Header';
-import Footer from './components/Footer';
-import CarCard from './components/CarCard';
-import CarDetails from './components/CarDetails';
-import AdminPanel from './components/AdminPanel';
-import ClientArea from './components/ClientArea';
+// Add react-router-dom import
+if (!code.includes('react-router-dom')) {
+  code = code.replace("import React, { useState, useMemo, useEffect } from 'react';", "import React, { useState, useMemo, useEffect } from 'react';\nimport { Routes, Route, useNavigate, Navigate, useLocation } from 'react-router-dom';");
+}
 
-// Supabase services and hooks
-import { useVehicles } from './hooks/useVehicles';
-import { useLeads } from './hooks/useLeads';
-import { useCategories } from './hooks/useCategories';
-import { vehicleService } from './services/vehicle.service';
-import { authService } from './services/auth.service';
+// Remove currentView and selectedCar states
+code = code.replace("const [currentView, setView] = useState<'catalog' | 'admin' | 'client'>('catalog');\n", "");
+code = code.replace("const [selectedCar, setSelectedCar] = useState<Car | null>(null);\n", "");
 
-export default function App() {
-  // Navigation states
-    
-  // Auth states
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [authChecking, setAuthChecking] = useState(true);
-
-  // Admin Login specific states
-  const [adminEmail, setAdminEmail] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [adminError, setAdminError] = useState<string | null>(null);
-  const [adminLoading, setAdminLoading] = useState(false);
-
-  // Check auth session on mount
-  useEffect(() => {
-    authService.getProfile().then(profile => {
-      setUserProfile(profile);
-      setAuthChecking(false);
-    });
-  }, []);
-
-  const navigate = useNavigate();
+// Replace handleLogin
+code = code.replace(
+`  const handleLogin = (profile: UserProfile) => {
+    setUserProfile(profile);
+    if (profile.role === 'admin') {
+      setView('admin');
+    } else {
+      setView('catalog');
+    }
+  };`,
+`  const navigate = useNavigate();
   const handleLogin = (profile: UserProfile) => {
     setUserProfile(profile);
     if (profile.role === 'admin') {
@@ -55,9 +28,21 @@ export default function App() {
     } else {
       navigate('/');
     }
-  };
+  };`
+);
 
-  const handleLogout = async () => {
+// Replace handleLogout
+code = code.replace(
+`  const handleLogout = async () => {
+    try {
+      await authService.signOut();
+      setUserProfile(null);
+      setView('catalog');
+    } catch (err) {
+      console.error('Error logging out:', err);
+    }
+  };`,
+`  const handleLogout = async () => {
     try {
       await authService.signOut();
       setUserProfile(null);
@@ -65,262 +50,35 @@ export default function App() {
     } catch (err) {
       console.error('Error logging out:', err);
     }
-  };
+  };`
+);
 
-  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdminError(null);
-    setAdminLoading(true);
+// Replace admin login navigate
+code = code.replace("setUserProfile(demoProfile);\n        setView('admin');", "setUserProfile(demoProfile);\n        navigate('/admin');");
+code = code.replace("setUserProfile(profile);\n      setView('admin');", "setUserProfile(profile);\n      navigate('/admin');");
+code = code.replace("setUserProfile(demoProfile);\n      setView('admin');", "setUserProfile(demoProfile);\n      navigate('/admin');");
 
-    // Dynamic bypass for local test / preview envs using demo credentials
-    const isDemoBypass = adminEmail.toLowerCase() === 'admin@douradoveiculos.com.br' && 
-      (adminPassword === 'admin' || adminPassword === 'admin123' || adminPassword === 'dourado123' || adminPassword === '12345678');
 
-    if (isDemoBypass) {
-      setTimeout(() => {
-        const demoProfile: UserProfile = {
-          id: 'user-admin-1',
-          email: 'admin@douradoveiculos.com.br',
-          name: 'João Dourado (Diretor)',
-          phone: '(11) 98765-4321',
-          city: 'São Paulo - SP',
-          role: 'admin'
-        };
-        setUserProfile(demoProfile);
-        navigate('/admin');
-        setAdminLoading(false);
-      }, 600);
-      return;
-    }
-
-    try {
-      const profile = await authService.signIn(adminEmail, adminPassword);
-      if (profile.role !== 'admin') {
-        throw new Error('Esta conta não possui permissões administrativas.');
-      }
-      setUserProfile(profile);
-      navigate('/admin');
-    } catch (err: any) {
-      setAdminError(err.message || 'Credenciais inválidas.');
-    } finally {
-      setAdminLoading(false);
-    }
-  };
-
-  const handleDemoAdminAccess = () => {
-    setAdminEmail('admin@douradoveiculos.com.br');
-    setAdminPassword('dourado123');
-    setAdminLoading(true);
-    setTimeout(() => {
-      const demoProfile: UserProfile = {
-        id: 'user-admin-1',
-        email: 'admin@douradoveiculos.com.br',
-        name: 'João Dourado (Diretor - Demonstração)',
-        phone: '(11) 98765-4321',
-        city: 'São Paulo - SP',
-        role: 'admin'
-      };
-      setUserProfile(demoProfile);
-      navigate('/admin');
-      setAdminLoading(false);
-    }, 600);
-  };
-
-  // Core Data persistent States using Supabase custom hooks
-  const { 
-    vehicles: cars, 
-    loading: carsLoading,
-    error: carsError,
-    addVehicle, 
-    updateVehicle, 
-    deleteVehicle 
-  } = useVehicles();
-
-  const { 
-    leads: messages, 
-    addLead, 
-    updateLeadStatus, 
-    deleteLead 
-  } = useLeads();
-
-  const { categories: dbCategories } = useCategories();
-
-  // Public Catalog Filter parameters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<CarCategory | 'Todos'>('Todos');
-  const [selectedBrand, setSelectedBrand] = useState<string>('Todos');
-
-  // Featured car carousel slider
-  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
-
-  const activeFeaturedCars = useMemo(() => {
-    const list = cars.filter(c => c.isFeatured && !c.isSold);
-    if (list.length > 0) return list;
-    return cars.filter(c => !c.isSold).slice(0, 4);
-  }, [cars]);
-
-  useEffect(() => {
-    if (activeFeaturedCars.length <= 1) return;
-    const interval = setInterval(() => {
-      setActiveSlideIndex(prev => (prev + 1) % activeFeaturedCars.length);
-    }, 6000);
-    return () => clearInterval(interval);
-  }, [activeFeaturedCars]);
-
-  // Financial Quote request states
-  const [simCarId, setSimCarId] = useState<string>('');
-  const [finName, setFinName] = useState('');
-  const [finPhone, setFinPhone] = useState('');
-  const [finEmail, setFinEmail] = useState('');
-  const [finMessage, setFinMessage] = useState('');
-  const [finSuccess, setFinSuccess] = useState(false);
-  const [finLoading, setFinLoading] = useState(false);
-
-  // Set initial car ID when cars are loaded
-  useEffect(() => {
-    if (cars.length > 0 && !simCarId) {
-      setSimCarId(cars[0].id);
-    }
-  }, [cars]);
-
-  // Unique list of brands currently available in inventory
-  const availableBrands = useMemo(() => {
-    const brands = new Set<string>();
-    cars.forEach(car => brands.add(car.brand));
-    return ['Todos', ...Array.from(brands)];
-  }, [cars]);
-
-  // Public filtered catalog computed query
-  const filteredCatalog = useMemo(() => {
-    return cars.filter(car => {
-      const matchSearch = 
-        car.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        car.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        car.version.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const matchCategory = selectedCategory === 'Todos' || car.category === selectedCategory;
-      const matchBrand = selectedBrand === 'Todos' || car.brand === selectedBrand;
-
-      return matchSearch && matchCategory && matchBrand;
-    });
-  }, [cars, searchQuery, selectedCategory, selectedBrand]);
-
-  // Categories lists with helper icons and description meta
-  const categoriesList = useMemo(() => {
-    if (dbCategories && dbCategories.length > 0) {
-      return dbCategories.map(cat => ({
-        name: cat.name as CarCategory,
-        icon: cat.icon || '🚗',
-        count: cars.filter(c => c.category === cat.name || c.categoryId === cat.id).length
-      }));
-    }
-    return [
-      { name: 'Hatch' as CarCategory, icon: '🚗', count: cars.filter(c => c.category === 'Hatch').length },
-      { name: 'SUV' as CarCategory, icon: '🚙', count: cars.filter(c => c.category === 'SUV').length },
-      { name: 'Sedan' as CarCategory, icon: '🚘', count: cars.filter(c => c.category === 'Sedan').length },
-      { name: 'Picape' as CarCategory, icon: '🛻', count: cars.filter(c => c.category === 'Picape').length },
-      { name: 'Utilitário' as CarCategory, icon: '🚐', count: cars.filter(c => c.category === 'Utilitário').length },
-      { name: 'Popular' as CarCategory, icon: '🏎️', count: cars.filter(c => c.category === 'Popular').length },
-    ];
-  }, [dbCategories, cars]);
-
-  // Action methods: adding, editing and deleting
-  const handleAddCar = async (newCar: Car) => {
-    try {
-      await addVehicle(newCar);
-    } catch (err) {
-      console.error('Error adding vehicle:', err);
-    }
-  };
-
-  const handleEditCar = async (updatedCar: Car) => {
-    try {
-      const updated = await updateVehicle(updatedCar.id, updatedCar);
-    } catch (err) {
-      console.error('Error updating vehicle:', err);
-    }
-  };
-
-  const handleDeleteCar = async (id: string) => {
-    try {
-      await deleteVehicle(id);
-    } catch (err) {
-      console.error('Error deleting vehicle:', err);
-    }
-  };
-
-  const handleUpdateMessageStatus = async (id: string, status: LeadMessage['status']) => {
-    try {
-      await updateLeadStatus(id, status);
-    } catch (err) {
-      console.error('Error updating message status:', err);
-    }
-  };
-
-  const handleDeleteMessage = async (id: string) => {
-    try {
-      await deleteLead(id);
-    } catch (err) {
-      console.error('Error deleting message:', err);
-    }
-  };
-
-  const handleSubmitLead = async (leadData: Omit<LeadMessage, 'id' | 'createdAt' | 'status'>) => {
-    try {
-      await addLead(leadData);
-      if (leadData.carId) {
-        await vehicleService.incrementWhatsappClicks(leadData.carId);
-      }
-    } catch (err) {
-      console.error('Error submitting lead:', err);
-    }
-  };
-
-  const handleFinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!finName || !finPhone || !simCarId) {
-      alert('Por favor, preencha o nome, telefone e escolha um veículo de interesse.');
-      return;
-    }
-    setFinLoading(true);
-    try {
-      const selectedCarObj = cars.find(c => c.id === simCarId);
-      const carTitle = selectedCarObj ? `\${selectedCarObj.brand} \${selectedCarObj.model}` : 'Veículo';
-      await handleSubmitLead({
-        carId: simCarId,
-        carTitle,
-        name: finName,
-        phone: finPhone,
-        email: finEmail,
-        message: `[Solicitação de Financiamento] \${finMessage || 'Olá, gostaria de solicitar uma análise de crédito para este veículo.'}`
-      });
-      setFinSuccess(true);
-      setFinName('');
-      setFinPhone('');
-      setFinEmail('');
-      setFinMessage('');
-      setTimeout(() => {
-        setFinSuccess(false);
-      }, 5000);
-    } catch (err) {
-      console.error('Error submitting financing lead:', err);
-    } finally {
-      setFinLoading(false);
-    }
-  };
-
-  const handleSelectCarDetails = (car: Car) => {
+// Replace handleSelectCarDetails
+code = code.replace(
+`  const handleSelectCarDetails = (car: Car) => {
+    // Increment views statistics asynchronously in background
     vehicleService.incrementViews(car.id);
-    navigate(`/veiculo/\${car.id}`);
-  };
+    setSelectedCar({ ...car, views: car.views + 1 });
+  };`,
+`  const handleSelectCarDetails = (car: Car) => {
+    vehicleService.incrementViews(car.id);
+    navigate(\`/veiculo/\${car.id}\`);
+  };`
+);
 
-  const resetFilters = () => {
-    setSearchQuery('');
-    setSelectedCategory('Todos');
-    setSelectedBrand('Todos');
-  };
 
-  return (
+// Replace the return block
+// It's quite large. We will replace everything from "return (" to the end of the file.
+const returnIndex = code.indexOf('return (');
+const headerCode = code.substring(0, returnIndex);
+
+const jsxCode = `  return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <Header 
         userProfile={userProfile}
@@ -369,7 +127,7 @@ export default function App() {
                               <div className="flex flex-wrap justify-center lg:justify-start gap-2 pt-2 text-xs font-bold text-slate-300">
                                 <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.gearbox}</span>
                                 <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.fuel}</span>
-                                <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.km === 0 ? "Zero KM" : `${car.km.toLocaleString('pt-BR')} km`}</span>
+                                <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.km === 0 ? "Zero KM" : \`\${car.km.toLocaleString('pt-BR')} km\`}</span>
                                 <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.color}</span>
                               </div>
 
@@ -395,7 +153,7 @@ export default function App() {
                               <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border border-slate-800 bg-slate-900 flex items-center justify-center group cursor-pointer" onClick={() => handleSelectCarDetails(car)}>
                                 <img
                                   src={car.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&q=80&w=800'}
-                                  alt={`${car.brand} ${car.model}`}
+                                  alt={\`\${car.brand} \${car.model}\`}
                                   className="w-full h-full object-cover opacity-90 transition-transform duration-700 group-hover:scale-105"
                                   referrerPolicy="no-referrer"
                                 />
@@ -415,10 +173,10 @@ export default function App() {
                             <button
                               key={i}
                               onClick={() => setActiveSlideIndex(i)}
-                              className={`h-2.5 rounded-full transition-all cursor-pointer ${
+                              className={\`h-2.5 rounded-full transition-all cursor-pointer \${
                                 i === activeSlideIndex ? 'w-8 bg-red-600' : 'w-2.5 bg-slate-800 hover:bg-slate-600'
-                              }`}
-                              title={`Ir para o slide ${i + 1}`}
+                              }\`}
+                              title={\`Ir para o slide \${i + 1}\`}
                             />
                           ))}
                         </div>
@@ -467,11 +225,11 @@ export default function App() {
                   <div className="flex gap-3 overflow-x-auto pb-2 scroll-hide">
                     <button
                       onClick={() => setSelectedCategory('Todos')}
-                      className={`px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all border ${
+                      className={\`px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all border \${
                         selectedCategory === 'Todos'
                           ? 'bg-slate-900 border-slate-900 text-white shadow-md'
                           : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300'
-                      }`}
+                      }\`}
                     >
                       <span>🚗</span>
                       <span>Ver Todos ({cars.length})</span>
@@ -481,11 +239,11 @@ export default function App() {
                       <button
                         key={cat.name}
                         onClick={() => setSelectedCategory(cat.name)}
-                        className={`px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all border ${
+                        className={\`px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all border \${
                           selectedCategory === cat.name
                             ? 'bg-red-600 border-red-600 text-white shadow-md'
                             : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300'
-                        }`}
+                        }\`}
                       >
                         <span>{cat.icon}</span>
                         <span>{cat.name} ({cat.count})</span>
@@ -795,3 +553,8 @@ function CarDetailsWrapper({ cars, onSubmitLead }: { cars: Car[], onSubmitLead: 
     />
   );
 }
+`;
+
+code = headerCode + jsxCode;
+
+fs.writeFileSync('src/App.tsx', code);

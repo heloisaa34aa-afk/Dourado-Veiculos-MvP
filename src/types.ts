@@ -146,6 +146,7 @@ export interface InspectionItem {
 export interface Vehicle360Project {
   id: string;
   vehicleId: string;
+  viewType?: 'exterior' | 'interior';
   status: 'draft' | 'processing' | 'completed';
   frameCount: number;
   frames?: Vehicle360Frame[];

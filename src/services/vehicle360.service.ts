@@ -20,7 +20,7 @@ export function normalizeMarkerPosition(position: any) {
 
 export const vehicle360Service = {
   // Public Viewer
-  async getPublishedProjectByVehicleId(vehicleId: string): Promise<Vehicle360Project | null> {
+  async getPublishedProjectByVehicleId(vehicleId: string, viewType: 'exterior' | 'interior' = 'exterior'): Promise<Vehicle360Project | null> {
     const { data: project, error } = await supabase
       .from('vehicle_360_projects')
       .select(`
@@ -34,6 +34,7 @@ export const vehicle360Service = {
         )
       `)
       .eq('vehicle_id', vehicleId)
+      .eq('view_type', viewType)
       .eq('status', 'completed')
       .maybeSingle();
 
@@ -48,6 +49,9 @@ export const vehicle360Service = {
     return {
       id: project.id,
       vehicleId: project.vehicle_id,
+      viewType: project.view_type,
+      
+      
       status: project.status,
       frameCount: project.frame_count,
       createdAt: project.created_at,
@@ -118,7 +122,7 @@ export const vehicle360Service = {
   },
 
   // Admin
-  async getProjectByVehicleId(vehicleId: string): Promise<Vehicle360Project | null> {
+  async getProjectByVehicleId(vehicleId: string, viewType: 'exterior' | 'interior' = 'exterior'): Promise<Vehicle360Project | null> {
     const { data: project, error } = await supabase
       .from('vehicle_360_projects')
       .select(`
@@ -132,6 +136,7 @@ export const vehicle360Service = {
         )
       `)
       .eq('vehicle_id', vehicleId)
+      .eq('view_type', viewType)
       .maybeSingle();
 
     if (error) {
@@ -146,6 +151,7 @@ export const vehicle360Service = {
     return {
       id: project.id,
       vehicleId: project.vehicle_id,
+      viewType: project.view_type,
       status: project.status,
       frameCount: project.frame_count,
       createdAt: project.created_at,
@@ -215,19 +221,19 @@ export const vehicle360Service = {
     } as any;
   },
 
-  async createProject(vehicleId: string): Promise<Vehicle360Project> {
-    const existing = await this.getProjectByVehicleId(vehicleId);
+  async createProject(vehicleId: string, viewType: 'exterior' | 'interior' = 'exterior'): Promise<Vehicle360Project> {
+    const existing = await this.getProjectByVehicleId(vehicleId, viewType);
     if (existing) return existing;
 
     const { data, error } = await supabase
       .from('vehicle_360_projects')
-      .insert({ vehicle_id: vehicleId, status: 'draft' })
+      .insert({ vehicle_id: vehicleId, view_type: viewType, status: 'draft' })
       .select()
       .single();
 
     if (error) {
       if (error.code === '23505') {
-        const concurrentExisting = await this.getProjectByVehicleId(vehicleId);
+        const concurrentExisting = await this.getProjectByVehicleId(vehicleId, viewType);
         if (concurrentExisting) return concurrentExisting;
       }
       throw error;
@@ -236,6 +242,7 @@ export const vehicle360Service = {
     return {
       id: data.id,
       vehicleId: data.vehicle_id,
+      viewType: data.view_type,
       status: data.status,
       frameCount: data.frame_count,
       createdAt: data.created_at,
@@ -319,17 +326,12 @@ export const vehicle360Service = {
     if (error) throw error;
   },
 
-  async removeFrame(projectId: string, frameId: string, currentFrames: Vehicle360Frame[]): Promise<void> {
-    // Validate first
-    if (currentFrames.length <= 1) throw new Error("Cannot remove the last frame.");
-    
-    // Remove
-    const { error } = await supabase.from('vehicle_360_frames').delete().eq('id', frameId);
+  async removeFrame(projectId: string, frameId: string): Promise<void> {
+    const { error } = await supabase.rpc('remove_vehicle_360_frame', {
+      p_project_id: projectId,
+      p_frame_id: frameId
+    });
     if (error) throw error;
-    
-    // Reorder remaining
-    const remaining = currentFrames.filter(f => f.id !== frameId).sort((a, b) => a.frameNumber - b.frameNumber);
-    await this.reorderFrames(projectId, remaining);
   },
 
   async reorderFrames(projectId: string, orderedFrames: Vehicle360Frame[]): Promise<void> {

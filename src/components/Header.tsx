@@ -3,19 +3,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Car, LayoutDashboard, ShieldCheck, UserCheck, LogOut } from 'lucide-react';
 import { motion } from 'motion/react';
 import { UserProfile } from '../types';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 interface HeaderProps {
-  currentView: 'catalog' | 'admin' | 'client';
-  setView: (view: 'catalog' | 'admin' | 'client') => void;
   userProfile: UserProfile | null;
   onLogout: () => void;
 }
 
-export default function Header({ currentView, setView, userProfile, onLogout }: HeaderProps) {
+export default function Header({ userProfile, onLogout }: HeaderProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const currentView = useMemo(() => {
+    if (location.pathname.startsWith('/admin')) return 'admin';
+    if (location.pathname.startsWith('/cliente')) return 'client';
+    return 'catalog';
+  }, [location.pathname]);
+
   return (
     <header className="sticky top-0 z-50 w-full bg-white border-b border-gray-100 shadow-sm backdrop-blur-md bg-opacity-95">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
@@ -23,7 +31,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
         {/* Brand Logo */}
         <div 
           className="flex items-center gap-2 cursor-pointer"
-          onClick={() => setView('catalog')}
+          onClick={() => navigate('/')}
         >
           <div className="bg-red-600 text-white p-2.5 rounded-xl shadow-md flex items-center justify-center">
             <Car className="w-6 h-6" />
@@ -33,7 +41,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
               Dourado <span className="text-red-600">Veículos</span>
             </span>
             <span className="text-[10px] font-semibold text-slate-400 tracking-wider uppercase -mt-0.5">
-              Seminovos &amp; Premium
+              Seminovos & Premium
             </span>
           </div>
         </div>
@@ -41,7 +49,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
         {/* Navigation Links (Public view only, or neutral links) */}
         <nav className="hidden md:flex items-center gap-8">
           <button
-            onClick={() => setView('catalog')}
+            onClick={() => navigate('/')}
             className={`font-medium text-sm transition-all pb-1 border-b-2 cursor-pointer ${
               currentView === 'catalog'
                 ? 'text-red-600 border-red-600'
@@ -54,7 +62,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
             href="#financiamento"
             onClick={(e) => {
               e.preventDefault();
-              setView('catalog');
+              navigate('/');
               setTimeout(() => {
                 document.getElementById('finance-section')?.scrollIntoView({ behavior: 'smooth' });
               }, 100);
@@ -67,7 +75,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
             href="#vantagens"
             onClick={(e) => {
               e.preventDefault();
-              setView('catalog');
+              navigate('/');
               setTimeout(() => {
                 document.getElementById('advantages-section')?.scrollIntoView({ behavior: 'smooth' });
               }, 100);
@@ -82,7 +90,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
         <div className="flex items-center gap-3">
           {userProfile && userProfile.role === 'admin' && (
             <button
-              onClick={() => setView('admin')}
+              onClick={() => navigate('/admin')}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-all cursor-pointer ${
                 currentView === 'admin'
                   ? 'bg-red-600 text-white border-red-600 shadow-md'
@@ -97,7 +105,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
           {userProfile ? (
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setView('client')}
+                onClick={() => navigate('/cliente')}
                 className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 font-extrabold text-sm hover:bg-slate-200 cursor-pointer"
                 title={`Logado como: ${userProfile.name || userProfile.email}`}
               >
@@ -115,7 +123,7 @@ export default function Header({ currentView, setView, userProfile, onLogout }: 
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => setView('client')}
+              onClick={() => navigate('/cliente')}
               className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-md transition-all cursor-pointer"
             >
               <UserCheck className="w-4 h-4 text-red-500" />

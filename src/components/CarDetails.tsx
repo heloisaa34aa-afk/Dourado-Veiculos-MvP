@@ -1,3 +1,4 @@
+import { useVehicle360 } from '../hooks/useVehicle360';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -29,8 +30,17 @@ interface CarDetailsProps {
   onSubmitLead: (lead: Omit<LeadMessage, 'id' | 'createdAt' | 'status'>) => void;
 }
 
+
 export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProps) {
+  const exterior360 = useVehicle360(car.id, 'public', 'exterior');
+  const interior360 = useVehicle360(car.id, 'public', 'interior');
   const [activeImage, setActiveImage] = useState(car.images[0] || '');
+  const galleryItems = [
+    ...(exterior360.project?.status === 'completed' && exterior360.totalFrames > 0 ? [{ id: '360-exterior', type: '360', viewType: 'exterior' as const, label: '360° Externo', thumb: exterior360.project.frames![0].imageUrl }] : []),
+    ...(interior360.project?.status === 'completed' && interior360.totalFrames > 0 ? [{ id: '360-interior', type: '360', viewType: 'interior' as const, label: '360° Interno', thumb: interior360.project.frames![0].imageUrl }] : []),
+    ...car.images.map((img, idx) => ({ id: img, type: 'image', url: img, thumb: img }))
+  ];
+  const currentItem = galleryItems.find(item => item.id === activeImage) || galleryItems[0];
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [leadName, setLeadName] = useState('');
   const [leadPhone, setLeadPhone] = useState('');
@@ -182,19 +192,34 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
               }}
               className="bg-slate-900 rounded-3xl overflow-hidden border border-slate-200/80 shadow-md aspect-video relative flex items-center justify-center cursor-pointer group select-none"
             >
+              
               <AnimatePresence mode="wait">
-                <motion.img
-                  key={activeImage}
-                  src={activeImage || car.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&q=80&w=800'}
-                  alt={car.model}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-103"
-                  referrerPolicy="no-referrer"
-                />
+                {currentItem?.type === '360' ? (
+                  <motion.div
+                    key={currentItem.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="absolute inset-0"
+                  >
+                    <ClientPoiPanel vehicleId={car.id} viewType={(currentItem as any).viewType} embedded={true} />
+                  </motion.div>
+                ) : (
+                  <motion.img
+                    key={currentItem?.id || 'default'}
+                    src={(currentItem as any)?.url || car.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&q=80&w=800'}
+                    alt={car.model}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-103"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
               </AnimatePresence>
+
 
               {/* Hover overlay prompt */}
               <div className="absolute inset-0 bg-slate-950/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -216,21 +241,20 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
             {/* Thumbnail collection */}
             {car.images.length > 1 && (
               <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
-                {car.images.map((img, idx) => (
+                {galleryItems.map((item, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => {
-                      setActiveImage(img);
-                      setGalleryLightboxIndex(idx);
+                      if (item.type === 'image') { setGalleryLightboxIndex(car.images.indexOf((item as any).url!)); } setActiveImage(item.id);
                       setGalleryZoom(1);
                       setGalleryPan({ x: 0, y: 0 });
                     }}
                     className={`relative w-28 sm:w-36 aspect-video rounded-xl overflow-hidden border-2 transition-all cursor-pointer shrink-0 group ${
-                      activeImage === img ? 'border-red-600 shadow-md ring-2 ring-red-600/30' : 'border-slate-200 hover:border-slate-400 opacity-80 hover:opacity-100'
+                      activeImage === item.id ? 'border-red-600 shadow-md ring-2 ring-red-600/30' : 'border-slate-200 hover:border-slate-400 opacity-80 hover:opacity-100'
                     }`}
                   >
-                    <img src={img} alt={`Thumb ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                    <img src={item.thumb} alt={`Thumb ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                   </button>
                 ))}
               </div>
@@ -321,10 +345,7 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
           </div>
         </div>
 
-        {/* VISUALIZAÇÃO 360 */}
-        <section className="mb-20">
-          <ClientPoiPanel vehicleId={car.id} />
-        </section>
+        
 
         {/* Content sections: About, Features & Technical Tables */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -777,21 +798,22 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin py-0.5 px-1">
-                {car.images.map((img, idx) => (
+                {galleryItems.map((item, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => {
-                      setGalleryLightboxIndex(idx);
-                      setActiveImage(img);
+                      if (item.type === 'image') { setGalleryLightboxIndex(car.images.indexOf((item as any).url)); }
+                      setActiveImage(item.id);
                       setGalleryZoom(1);
                       setGalleryPan({ x: 0, y: 0 });
                     }}
                     className={`relative w-16 sm:w-20 aspect-video rounded-xl overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
-                      galleryLightboxIndex === idx ? 'border-red-500 scale-105 shadow-lg ring-2 ring-red-500/50' : 'border-slate-800 opacity-60 hover:opacity-100'
+                      activeImage === item.id || (!activeImage && idx === 0) ? 'border-red-500 scale-105 shadow-lg ring-2 ring-red-500/50' : 'border-slate-800 opacity-60 hover:opacity-100'
                     }`}
                   >
-                    <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={item.thumb} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    {item.type === '360' && <div className="absolute inset-0 flex items-center justify-center bg-black/30"><RotateCcw className="w-5 h-5 text-white" /></div>}
                   </button>
                 ))}
               </div>

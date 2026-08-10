@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { useVehicle360 } from '../hooks/useVehicle360';
 import { ImageCoordinateStage } from './360/ImageCoordinateStage';
-import { ChevronLeft, ChevronRight, Play, Pause, AlertTriangle, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, Pause, AlertTriangle, Info, Maximize } from 'lucide-react';
 import { Vehicle360Hotspot, Vehicle360DamageMarker } from '../types';
 import { MarkerDetailModal } from './360/MarkerDetailModal';
 
 interface ClientPoiPanelProps {
   vehicleId: string;
+  embedded?: boolean;
+  viewType?: 'exterior' | 'interior';
 }
 
-export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
+export function ClientPoiPanel({ vehicleId, embedded = false, viewType = 'exterior' }: ClientPoiPanelProps) {
   const { 
     project, 
     loading, 
@@ -23,13 +25,13 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
     nextFrame,
     prevFrame,
     totalFrames
-  } = useVehicle360(vehicleId, 'public');
+  } = useVehicle360(vehicleId, 'public', viewType);
 
   const [activePoi, setActivePoi] = useState<Vehicle360Hotspot | null>(null);
   const [activeDamage, setActiveDamage] = useState<Vehicle360DamageMarker | null>(null);
 
   if (loading) {
-    return <div className="h-64 flex items-center justify-center bg-gray-50 animate-pulse text-gray-500">Carregando visão 360°...</div>;
+    return <div className="w-full h-full min-h-[300px] flex items-center justify-center bg-gray-50/50 animate-pulse text-gray-500 rounded-2xl">Carregando visão 360°...</div>;
   }
 
   if (!project || totalFrames === 0) {
@@ -41,16 +43,16 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
 
   const currentHotspots = (project.hotspots || []).filter(h => h.active).map(h => {
     const pos = h.positions?.find(p => p.frameNumber === currentFrame);
-    if (pos) {
-       return pos.visible ? { ...h, posX: pos.posX, posY: pos.posY } : null;
+    if (pos) { 
+      return pos.visible ? { ...h, posX: pos.posX, posY: pos.posY } : null;
     }
     return h.frameNumber === currentFrame ? h : null;
   }).filter(Boolean) as Vehicle360Hotspot[];
 
   const currentDamages = (project.damageMarkers || []).map(d => {
     const pos = d.positions?.find(p => p.frameNumber === currentFrame);
-    if (pos) {
-       return pos.visible ? { ...d, posX: pos.posX, posY: pos.posY } : null;
+    if (pos) { 
+      return pos.visible ? { ...d, posX: pos.posX, posY: pos.posY } : null;
     }
     return d.frameNumber === currentFrame ? d : null;
   }).filter(Boolean) as Vehicle360DamageMarker[];
@@ -101,28 +103,30 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="font-medium text-gray-900">Visão 360° do Veículo</h3>
-        
-        <div className="flex gap-2">
-          <button onClick={prevFrame} className="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label="Frame anterior">
-            <ChevronLeft size={20} />
-          </button>
-          <button onClick={toggleAutoSpin} className="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label={isAutoSpinning ? "Pausar giro" : "Giro automático"}>
-            {isAutoSpinning ? <Pause size={20} /> : <Play size={20} />}
-          </button>
-          <button onClick={nextFrame} className="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label="Próximo frame">
-            <ChevronRight size={20} />
-          </button>
+    <div className={`bg-white shadow-sm overflow-hidden flex flex-col ${embedded ? 'w-full h-full rounded-2xl' : 'rounded-xl border border-gray-200'}`}>
+      {!embedded && (
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h3 className="font-medium text-gray-900">Visão 360° do Veículo</h3>
+          
+          <div className="flex gap-2">
+            <button onClick={prevFrame} className="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label="Frame anterior">
+              <ChevronLeft size={20} />
+            </button>
+            <button onClick={toggleAutoSpin} className="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label={isAutoSpinning ? "Pausar giro" : "Giro automático"}>
+              {isAutoSpinning ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+            <button onClick={nextFrame} className="p-2 rounded-full hover:bg-gray-100 text-gray-600" aria-label="Próximo frame">
+              <ChevronRight size={20} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="relative aspect-video bg-gray-100 touch-none">
+      <div className={`relative bg-gray-100 touch-none flex-1 ${!embedded ? 'aspect-video' : 'w-full h-full'}`}>
         <ImageCoordinateStage
           imageUrl={currentFrameData.imageUrl}
           markers={markers}
-          className="cursor-ew-resize"
+          className={`cursor-ew-resize w-full h-full object-contain ${embedded ? 'absolute inset-0' : ''}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -130,9 +134,15 @@ export function ClientPoiPanel({ vehicleId }: ClientPoiPanelProps) {
           onPointerLeave={handlePointerUp}
         />
         
+        {embedded && (
+           <button onClick={toggleAutoSpin} className="absolute bottom-4 right-4 z-10 p-3 bg-black/60 hover:bg-black/80 backdrop-blur text-white rounded-xl shadow-lg transition-all" aria-label={isAutoSpinning ? "Pausar giro" : "Giro automático"}>
+             {isAutoSpinning ? <Pause size={24} /> : <Play size={24} />}
+           </button>
+        )}
+
         <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none">
-          <div className="bg-black/50 backdrop-blur text-white px-3 py-1 rounded-full text-sm flex gap-2 shadow-sm">
-            <span>Arraste para girar</span>
+          <div className="bg-black/50 backdrop-blur text-white px-4 py-2 rounded-full text-sm font-medium flex gap-2 shadow-sm">
+            <span>Arraste para girar em 360°</span>
           </div>
         </div>
       </div>
