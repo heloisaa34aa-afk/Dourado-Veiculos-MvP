@@ -73,7 +73,7 @@ describe('CarRouting', () => {
     
     expect(screen.getByText('Carregando detalhes do veículo...')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('Veículo não encontrado')).toBeInTheDocument();
+      expect(screen.getByText('Veículo não encontrado')).toBeDefined();
     });
   });
 
@@ -94,7 +94,7 @@ describe('CarRouting', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Veículo não encontrado')).toBeInTheDocument();
+      expect(screen.getByText('Veículo não encontrado')).toBeDefined();
     });
 
     const backButton = screen.getByText('Voltar ao Catálogo');

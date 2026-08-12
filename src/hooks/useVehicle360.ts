@@ -130,47 +130,55 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     setIsAutoSpinning(prev => !prev);
   }, []);
 
-  const uploadFrames = async (files: File[]) => {
+  const uploadFrames = async (files: File[], mode: 'replace' | 'append' = 'replace') => {
     if (!project) return;
-    setUploading(true);
-    setError(null);
-    setUploadProgress({ current: 0, total: files.length });
-    
     try {
-      await vehicle360Service.updateProjectStatus(project.id, 'processing');
-      
-      const newFrames: Omit<Vehicle360Frame, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>[] = [];
-      let current = 0;
-      
-      // Parallel upload with concurrency limit (e.g. 3)
-      const CONCURRENCY = 3;
-      for (let i = 0; i < files.length; i += CONCURRENCY) {
-        const batch = files.slice(i, i + CONCURRENCY);
-        const promises = batch.map(async (file, batchIdx) => {
-          const globalIdx = i + batchIdx;
-          const { width, height } = await validation360.getImageDimensions(file);
-          const filename = `${String(globalIdx).padStart(3, '0')}-${file.name}`;
-          const { imageUrl, storagePath } = await vehicle360Storage.uploadFrame(vehicleId, project.id, file, filename);
-          return {
-            frameNumber: globalIdx,
-            imageUrl,
-            storagePath,
-            originalFilename: file.name,
-            width,
-            height
-          };
+      setUploading(true);
+      setUploadProgress({ current: 0, total: files.length });
+
+      let startIndex = 0;
+
+      if (mode === 'replace') {
+        if (project.frames && project.frames.length > 0) {
+          for (const frame of project.frames) {
+            if (frame.storagePath) {
+              await vehicle360Storage.deleteStorageObject(frame.storagePath);
+            }
+          }
+          
+        }
+      } else {
+        if (project.frames && project.frames.length > 0) {
+          startIndex = Math.max(...project.frames.map(f => f.frameNumber)) + 1;
+        }
+      }
+
+      let successCount = 0;
+      const newFrames: any[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const frameNumber = startIndex + i;
+        const { imageUrl, storagePath } = await vehicle360Storage.uploadFrame(vehicleId, project.id, file, `${Date.now()}_frame_${frameNumber}.jpg`);
+        
+        newFrames.push({
+          frameNumber,
+          imageUrl,
+          storagePath
         });
         
-        const results = await Promise.all(promises);
-        newFrames.push(...results);
-        current += results.length;
-        setUploadProgress({ current, total: files.length });
+        successCount++;
+        setUploadProgress({ current: successCount, total: files.length });
       }
       
-      await vehicle360Service.replaceProjectFrames(project.id, newFrames);
-      await vehicle360Service.updateProjectStatus(project.id, 'draft');
+      if (mode === 'replace') {
+        await vehicle360Service.replaceProjectFrames(project.id, newFrames);
+      } else {
+        await vehicle360Service.addFrames(project.id, newFrames);
+      }
+
       await loadProject();
-    } catch (err: any) {
+      setCurrentFrame(mode === 'append' ? startIndex : 0);
+    } catch(err: any) {
       setError(err);
       throw err;
     } finally {
@@ -180,7 +188,7 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
 
   const publishProject = async () => {
     if (!project || !project.frames) return false;
-    const { valid, errors } = validation360.checklist360(project, project.frames);
+    const { valid, errors } = validation360.checklist360(project, project.frames, viewType);
     if (!valid) {
       setError(new Error(errors.join('\n')));
       return false;
@@ -365,13 +373,31 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     if (!project || !project.frames) return;
     setUploading(true); // Treat as upload to lock UI
     try {
-      await vehicle360Service.removeFrame(project.id, frame.id);
-      if (frame.storagePath) {
-        await vehicle360Storage.deleteStorageObject(frame.storagePath);
+      const response = await vehicle360Service.removeFrame(project.id, frame.id);
+      if (response && response.storage_path) {
+        try {
+          await vehicle360Storage.deleteStorageObject(response.storage_path);
+        } catch(e) {
+          console.warn("Frame removido, mas o arquivo precisa de limpeza posterior.", e);
+        }
       }
+      
+      const updatedProject = await vehicle360Service.getProjectByVehicleId(vehicleId);
+      if (updatedProject && updatedProject.status === 'completed') {
+        const { valid } = validation360.checklist360(updatedProject, updatedProject.frames || [], viewType);
+        if (!valid) {
+          await unpublishProject();
+          alert("O projeto voltou para rascunho porque ficou abaixo do mínimo de publicação.");
+        }
+      }
+
       await loadProject();
+      if (currentFrame >= (response?.remaining_frames || 1)) {
+        setCurrentFrame(Math.max(0, (response?.remaining_frames || 1) - 1));
+      }
     } catch(err: any) {
       setError(err);
+      alert(err.message || "Erro ao excluir o frame");
       throw err;
     } finally {
       setUploading(false);

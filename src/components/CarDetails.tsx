@@ -34,13 +34,56 @@ interface CarDetailsProps {
 export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProps) {
   const exterior360 = useVehicle360(car.id, 'public', 'exterior');
   const interior360 = useVehicle360(car.id, 'public', 'interior');
-  const [activeImage, setActiveImage] = useState(car.images[0] || '');
-  const galleryItems = [
-    ...(exterior360.project?.status === 'completed' && exterior360.totalFrames > 0 ? [{ id: '360-exterior', type: '360', viewType: 'exterior' as const, label: '360° Externo', thumb: exterior360.project.frames![0].imageUrl }] : []),
-    ...(interior360.project?.status === 'completed' && interior360.totalFrames > 0 ? [{ id: '360-interior', type: '360', viewType: 'interior' as const, label: '360° Interno', thumb: interior360.project.frames![0].imageUrl }] : []),
-    ...car.images.map((img, idx) => ({ id: img, type: 'image', url: img, thumb: img }))
-  ];
-  const currentItem = galleryItems.find(item => item.id === activeImage) || galleryItems[0];
+  type VehicleMediaItem = 
+    | { id: 'vehicle-360'; type: '360'; thumbnail: string }
+    | { id: string; type: 'image'; url: string; thumbnail: string; imageIndex: number };
+
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+  const [userManuallySelected, setUserManuallySelected] = useState(false);
+  const [active360ViewType, setActive360ViewType] = useState<'exterior' | 'interior'>('exterior');
+
+  const hasExterior = exterior360.project?.status === 'completed' && exterior360.totalFrames > 0;
+  const hasInterior = interior360.project?.status === 'completed' && interior360.totalFrames > 0;
+  const has360 = hasExterior || hasInterior;
+  const loading360 = exterior360.loading || interior360.loading;
+
+  const galleryItems: VehicleMediaItem[] = [];
+  if (has360) {
+    galleryItems.push({
+      id: 'vehicle-360',
+      type: '360',
+      thumbnail: hasExterior ? exterior360.project!.frames![0].imageUrl : interior360.project!.frames![0].imageUrl
+    });
+  }
+  car.images.forEach((url, idx) => {
+    galleryItems.push({
+      id: url,
+      type: 'image',
+      url,
+      thumbnail: url,
+      imageIndex: idx
+    });
+  });
+
+  const currentItem = galleryItems.find(item => item.id === selectedMediaId) || galleryItems[0];
+
+  // Auto select logic
+  useEffect(() => {
+    if (!loading360 && !userManuallySelected) {
+      if (has360) {
+        setSelectedMediaId('vehicle-360');
+        setActive360ViewType(hasExterior ? 'exterior' : 'interior');
+      } else if (car.images.length > 0) {
+        setSelectedMediaId(car.images[0]);
+      }
+    }
+  }, [loading360, has360, hasExterior, car.images, userManuallySelected]);
+
+  // Reset manual selection when car changes
+  useEffect(() => {
+    setUserManuallySelected(false);
+    setSelectedMediaId(null);
+  }, [car.id]);
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [leadName, setLeadName] = useState('');
   const [leadPhone, setLeadPhone] = useState('');
@@ -185,25 +228,43 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
             {/* Primary Display image with Fullscreen Lightbox trigger */}
             <div 
               onClick={() => {
-                const idx = car.images.indexOf(activeImage);
-                setGalleryLightboxIndex(idx >= 0 ? idx : 0);
-                setGalleryZoom(1);
-                setGalleryPan({ x: 0, y: 0 });
+                if (currentItem?.type === 'image') {
+                  const idx = currentItem.imageIndex;
+                  setGalleryLightboxIndex(idx >= 0 ? idx : 0);
+                  setGalleryZoom(1);
+                  setGalleryPan({ x: 0, y: 0 });
+                }
               }}
-              className="bg-slate-900 rounded-3xl overflow-hidden border border-slate-200/80 shadow-md aspect-video relative flex items-center justify-center cursor-pointer group select-none"
+              className={`bg-slate-900 rounded-3xl overflow-hidden border border-slate-200/80 shadow-md aspect-video relative flex items-center justify-center select-none ${currentItem?.type === 'image' ? 'cursor-pointer group' : ''}`}
             >
               
               <AnimatePresence mode="wait">
                 {currentItem?.type === '360' ? (
                   <motion.div
-                    key={currentItem.id}
+                    key={`${currentItem.id}-${active360ViewType}`}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="absolute inset-0"
+                    className="absolute inset-0 z-10"
                   >
-                    <ClientPoiPanel vehicleId={car.id} viewType={(currentItem as any).viewType} embedded={true} />
+                    <ClientPoiPanel vehicleId={car.id} viewType={active360ViewType} embedded={true} />
+                    {hasExterior && hasInterior && (
+                      <div className="absolute top-4 right-4 z-50 flex bg-black/50 p-1 rounded-lg backdrop-blur">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setActive360ViewType('exterior'); }}
+                          className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${active360ViewType === 'exterior' ? 'bg-white text-black' : 'text-white hover:bg-white/20'}`}
+                        >
+                          Externo
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setActive360ViewType('interior'); }}
+                          className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${active360ViewType === 'interior' ? 'bg-white text-black' : 'text-white hover:bg-white/20'}`}
+                        >
+                          Interno
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 ) : (
                   <motion.img
@@ -222,12 +283,14 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
 
 
               {/* Hover overlay prompt */}
-              <div className="absolute inset-0 bg-slate-950/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <div className="bg-slate-900/90 backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 text-white font-bold text-xs border border-slate-700/60 shadow-2xl">
-                  <Maximize2 className="w-4 h-4 text-red-500" />
-                  <span>Clique para ampliar em Tela Cheia</span>
+              {currentItem?.type === 'image' && (
+                <div className="absolute inset-0 bg-slate-950/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                  <div className="bg-slate-900/90 backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 text-white font-bold text-xs border border-slate-700/60 shadow-2xl">
+                    <Maximize2 className="w-4 h-4 text-red-500" />
+                    <span>Clique para ampliar em Tela Cheia</span>
+                  </div>
                 </div>
-              </div>
+              )}
               
               {car.isSold && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none">
@@ -246,15 +309,16 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
                     key={idx}
                     type="button"
                     onClick={() => {
-                      if (item.type === 'image') { setGalleryLightboxIndex(car.images.indexOf((item as any).url!)); } setActiveImage(item.id);
+                      setSelectedMediaId(item.id);
+                      setUserManuallySelected(true);
                       setGalleryZoom(1);
                       setGalleryPan({ x: 0, y: 0 });
                     }}
                     className={`relative w-28 sm:w-36 aspect-video rounded-xl overflow-hidden border-2 transition-all cursor-pointer shrink-0 group ${
-                      activeImage === item.id ? 'border-red-600 shadow-md ring-2 ring-red-600/30' : 'border-slate-200 hover:border-slate-400 opacity-80 hover:opacity-100'
+                      selectedMediaId === item.id ? 'border-red-600 shadow-md ring-2 ring-red-600/30' : 'border-slate-200 hover:border-slate-400 opacity-80 hover:opacity-100'
                     }`}
                   >
-                    <img src={item.thumb} alt={`Thumb ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                    <img src={item.thumbnail} alt={`Thumb ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                   </button>
                 ))}
               </div>
@@ -803,16 +867,16 @@ export default function CarDetails({ car, onBack, onSubmitLead }: CarDetailsProp
                     key={idx}
                     type="button"
                     onClick={() => {
-                      if (item.type === 'image') { setGalleryLightboxIndex(car.images.indexOf((item as any).url)); }
-                      setActiveImage(item.id);
+                      setSelectedMediaId(item.id);
+                      setUserManuallySelected(true);
                       setGalleryZoom(1);
                       setGalleryPan({ x: 0, y: 0 });
                     }}
                     className={`relative w-16 sm:w-20 aspect-video rounded-xl overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
-                      activeImage === item.id || (!activeImage && idx === 0) ? 'border-red-500 scale-105 shadow-lg ring-2 ring-red-500/50' : 'border-slate-800 opacity-60 hover:opacity-100'
+                      selectedMediaId === item.id || (!selectedMediaId && idx === 0) ? 'border-red-500 scale-105 shadow-lg ring-2 ring-red-500/50' : 'border-slate-800 opacity-60 hover:opacity-100'
                     }`}
                   >
-                    <img src={item.thumb} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={item.thumbnail} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     {item.type === '360' && <div className="absolute inset-0 flex items-center justify-center bg-black/30"><RotateCcw className="w-5 h-5 text-white" /></div>}
                   </button>
                 ))}

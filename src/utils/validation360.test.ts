@@ -31,13 +31,13 @@ describe('validation360', () => {
     
     // Test too few frames
     const fewFrames: Vehicle360Frame[] = Array.from({ length: 10 }).map((_, i) => ({ frameNumber: i, imageUrl: 'url' } as Vehicle360Frame));
-    const result1 = validation360.checklist360(project, fewFrames);
+    const result1 = validation360.checklist360(project, fewFrames, 'exterior');
     expect(result1.valid).toBe(false);
-    expect(result1.errors.some(e => e.includes('Mínimo de 24 frames'))).toBe(true);
+    expect(result1.errors.some(e => e.includes('pelo menos 24 imagens'))).toBe(true);
 
     // Test valid (24 frames)
     const validFrames: Vehicle360Frame[] = Array.from({ length: 24 }).map((_, i) => ({ frameNumber: i, imageUrl: 'url' } as Vehicle360Frame));
-    const result2 = validation360.checklist360(project, validFrames);
+    const result2 = validation360.checklist360(project, validFrames, 'exterior');
     expect(result2.valid).toBe(true);
     expect(result2.errors.length).toBe(0);
   });

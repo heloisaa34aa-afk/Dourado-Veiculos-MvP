@@ -1,4 +1,17 @@
-import { Vehicle360Project, Vehicle360Frame } from '../types';
+import sys
+import re
+
+with open('src/utils/validation360.ts', 'r') as f:
+    text = f.read()
+
+old_content = """import { Vehicle360Project, Vehicle360Frame } from '../types';
+
+export const validation360 = {
+  validImageTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  minFrames: 24,
+  maxFrames: 96,"""
+
+new_content = """import { Vehicle360Project, Vehicle360Frame } from '../types';
 
 export type Vehicle360ViewType = 'exterior' | 'interior';
 
@@ -20,40 +33,44 @@ export const FRAME_LIMITS = {
 }>;
 
 export const validation360 = {
-  validImageTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  validImageTypes: ['image/jpeg', 'image/png', 'image/webp'],"""
 
-  validateImageFormat(file: File): boolean {
-    return this.validImageTypes.includes(file.type);
-  },
+text = text.replace(old_content, new_content)
 
-  extractNumberFromFilename(filename: string): number {
-    const match = filename.match(/(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
-  },
-
-  sortFilesNumerically(files: File[]): File[] {
-    return [...files].sort((a, b) => {
-      const numA = this.extractNumberFromFilename(a.name);
-      const numB = this.extractNumberFromFilename(b.name);
-      return numA - numB;
-    });
-  },
-
-  hasDuplicates(files: File[]): boolean {
-    const names = files.map(f => f.name);
-    return new Set(names).size !== names.length;
-  },
-
-  validateSequence(frames: Vehicle360Frame[]): boolean {
-    if (frames.length === 0) return false;
-    const sorted = [...frames].sort((a, b) => a.frameNumber - b.frameNumber);
-    for (let i = 0; i < sorted.length; i++) {
-      if (sorted[i].frameNumber !== i) return false;
+old_checklist = """  checklist360(project: Vehicle360Project, frames: Vehicle360Frame[]): { valid: boolean, errors: string[] } {
+    const errors: string[] = [];
+        
+    if (!project) {
+      errors.push("Projeto não encontrado.");
+      return { valid: false, errors };
     }
-    return true;
-  },
 
-  checklist360(project: Vehicle360Project | null | undefined, frames: Vehicle360Frame[], viewType: Vehicle360ViewType): { valid: boolean, errors: string[], warnings?: string[] } {
+    if (frames.length < this.minFrames) {
+      errors.push(`Mínimo de ${this.minFrames} frames (atual: ${frames.length}).`);
+    }
+
+    if (frames.length > this.maxFrames) {
+      errors.push(`Máximo de ${this.maxFrames} frames (atual: ${frames.length}).`);
+    }
+
+    if (!this.validateSequence(frames)) {
+      errors.push("A sequência de frames não é contínua a partir de zero.");
+    }
+
+    const missingUrls = frames.filter(f => !f.imageUrl);
+    if (missingUrls.length > 0) {
+      errors.push(`${missingUrls.length} frame(s) sem imagem.`);
+    }
+        
+    const uniqueFrames = new Set(frames.map(f => f.frameNumber));
+    if (uniqueFrames.size !== frames.length) {
+      errors.push("Existem frames duplicados (mesmo número).");
+    }
+
+    return { valid: errors.length === 0, errors };
+  },"""
+
+new_checklist = """  checklist360(project: Vehicle360Project | null | undefined, frames: Vehicle360Frame[], viewType: Vehicle360ViewType): { valid: boolean, errors: string[], warnings?: string[] } {
     const errors: string[] = [];
     const warnings: string[] = [];
         
@@ -97,21 +114,10 @@ export const validation360 = {
     }
 
     return { valid: errors.length === 0, errors, warnings };
-  },
+  },"""
 
-  async getImageDimensions(file: File): Promise<{ width: number, height: number }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve({ width: img.width, height: img.height });
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("Failed to load image"));
-      };
-      img.src = url;
-    });
-  }
-};
+text = text.replace(old_checklist, new_checklist)
+
+with open('src/utils/validation360.ts', 'w') as f:
+    f.write(text)
+

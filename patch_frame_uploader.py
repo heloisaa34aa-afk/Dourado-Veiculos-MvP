@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import sys
+import re
+
+with open('src/components/360/FrameUploader.tsx', 'r') as f:
+    text = f.read()
+
+new_content = """import React, { useState, useEffect } from 'react';
 import { UploadCloud, CheckCircle2, AlertCircle, RefreshCw, Plus } from 'lucide-react';
 import { validation360, FRAME_LIMITS, Vehicle360ViewType } from '../../utils/validation360';
 
 interface FrameUploaderProps {
   viewType: Vehicle360ViewType;
   currentFrameCount: number;
-
+  uploadMode: 'replace' | 'append';
   onUpload: (files: File[], mode: 'replace' | 'append') => Promise<void>;
   uploading: boolean;
   progress: { current: number; total: number };
@@ -150,3 +156,8 @@ export function FrameUploader({ viewType, currentFrameCount, onUpload, uploading
     </div>
   );
 }
+"""
+
+with open('src/components/360/FrameUploader.tsx', 'w') as f:
+    f.write(new_content)
+

@@ -49,7 +49,7 @@ export const vehicle360Service = {
     return {
       id: project.id,
       vehicleId: project.vehicle_id,
-      viewType: project.view_type,
+      viewType: project.view_type as 'exterior' | 'interior' || 'exterior',
       
       
       status: project.status,
@@ -151,7 +151,7 @@ export const vehicle360Service = {
     return {
       id: project.id,
       vehicleId: project.vehicle_id,
-      viewType: project.view_type,
+      viewType: project.view_type as 'exterior' | 'interior' || 'exterior',
       status: project.status,
       frameCount: project.frame_count,
       createdAt: project.created_at,
@@ -242,7 +242,7 @@ export const vehicle360Service = {
     return {
       id: data.id,
       vehicleId: data.vehicle_id,
-      viewType: data.view_type,
+      viewType: data.view_type as 'exterior' | 'interior' || 'exterior',
       status: data.status,
       frameCount: data.frame_count,
       createdAt: data.created_at,
@@ -326,12 +326,31 @@ export const vehicle360Service = {
     if (error) throw error;
   },
 
-  async removeFrame(projectId: string, frameId: string): Promise<void> {
-    const { error } = await supabase.rpc('remove_vehicle_360_frame', {
+  async removeFrame(projectId: string, frameId: string): Promise<{deleted_frame_id: string, deleted_frame_number: number, storage_path: string, remaining_frames: number}> {
+    const { data, error } = await supabase.rpc('remove_vehicle_360_frame', {
       p_project_id: projectId,
       p_frame_id: frameId
     });
     if (error) throw error;
+    return data;
+  },
+
+  
+  async addFrames(projectId: string, frames: Omit<Vehicle360Frame, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>[]): Promise<void> {
+    if (frames.length === 0) return;
+    const { error } = await supabase
+      .from('vehicle_360_frames')
+      .insert(frames.map(f => ({
+        project_id: projectId,
+        frame_number: f.frameNumber,
+        image_url: f.imageUrl,
+        storage_path: f.storagePath,
+        original_filename: f.originalFilename,
+        width: f.width,
+        height: f.height,
+      })));
+    if (error) throw error;
+    await this.touchProject(projectId);
   },
 
   async reorderFrames(projectId: string, orderedFrames: Vehicle360Frame[]): Promise<void> {

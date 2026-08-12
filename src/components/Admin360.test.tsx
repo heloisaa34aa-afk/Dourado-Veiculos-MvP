@@ -75,7 +75,7 @@ describe('Admin360Module', () => {
     render(<Admin360Module cars={mockCars} />);
     const select = screen.getByRole('combobox');
     fireEvent.change(select, { target: { value: 'car-1' } });
-    expect(screen.getByText(/frames/)).toBeDefined();
+    expect(screen.getAllByText(/Editando visão/i)[0]).toBeDefined();
   });
 });
 

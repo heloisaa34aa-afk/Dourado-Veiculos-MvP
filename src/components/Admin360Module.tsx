@@ -6,7 +6,7 @@ import { FrameUploader } from './360/FrameUploader';
 import { 
   Trash2, CheckCircle2, ChevronLeft, ChevronRight, Plus, AlertTriangle, AlertCircle, 
   X, Info, Edit2, Move, Focus, Eye, EyeOff, Save, Play, ArrowLeft, Loader2, Camera, MousePointer2, Maximize, Minimize, PanelRightClose, PanelRightOpen, Car as CarIcon
-} from 'lucide-react';
+, UploadCloud } from 'lucide-react';
 import { Car, Vehicle360Hotspot, Vehicle360DamageMarker, Vehicle360MarkerPosition } from '../types';
 
 interface Admin360ModuleProps {
@@ -23,7 +23,16 @@ export function Admin360Module({ cars }: Admin360ModuleProps) {
 
   if (selectedVehicleId) {
     const car = cars.find(c => c.id === selectedVehicleId);
-    return <Vehicle360Workspace vehicleId={selectedVehicleId} car={car!} viewType={selectedViewType} onBack={() => setSelectedVehicleId('')} />;
+    return (
+      <Vehicle360Workspace 
+        key={`${selectedVehicleId}:${selectedViewType}`} 
+        vehicleId={selectedVehicleId} 
+        car={car!} 
+        viewType={selectedViewType} 
+        onViewTypeChange={setSelectedViewType}
+        onBack={() => setSelectedVehicleId('')} 
+      />
+    );
   }
 
   return (
@@ -50,17 +59,17 @@ export function Admin360Module({ cars }: Admin360ModuleProps) {
   );
 }
 
-function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: string, car: Car, viewType: 'exterior' | 'interior', onBack: () => void }) {
+function Vehicle360Workspace({ vehicleId, car, viewType, onViewTypeChange, onBack }: { vehicleId: string, car: Car, viewType: 'exterior' | 'interior', onViewTypeChange: (v: 'exterior' | 'interior') => void, onBack: () => void }) {
   const { 
     project, loading, reload, currentFrame, setCurrentFrame, totalFrames,
     handlePointerDown, handlePointerMove, handlePointerUp,
-    nextFrame, prevFrame, uploadFrames, uploading, uploadProgress,
+    nextFrame, prevFrame, uploadFrames, removeFrame, uploading, uploadProgress,
     publishProject, unpublishProject, hotspots, damageMarkers,
     createHotspot, updateHotspot, deleteHotspot, 
     createDamageMarker, updateDamageMarker, deleteDamageMarker
   } = useVehicle360(vehicleId, 'admin', viewType);
 
-  const [mode, setMode] = useState<'idle' | 'add_poi_pick' | 'add_damage_pick' | 'form' | 'tracking' | 'review' | 'manual_adjust' | 'checklist'>('idle');
+  const [mode, setMode] = useState<'idle' | 'add_poi_pick' | 'add_damage_pick' | 'form' | 'tracking' | 'review' | 'manual_adjust' | 'checklist' | 'upload'>('idle');
   const [formType, setFormType] = useState<'poi' | 'damage'>('poi');
   const [draftPos, setDraftPos] = useState<{x: number, y: number, frame: number} | null>(null);
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
@@ -77,16 +86,6 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
   const [panelOpen, setPanelOpen] = useState(true);
   const workspaceRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!project && !loading) {
-      // Auto load is handled by calling reload directly or letting user click create. 
-      // But we removed getOrCreateProject. Let's just create if not exists
-      vehicle360Service.getProjectByVehicleId(vehicleId).then(p => {
-        if (!p) vehicle360Service.createProject(vehicleId).then(reload);
-        else reload();
-      });
-    }
-  }, [project, loading, vehicleId, reload]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -106,8 +105,67 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
     }
   };
 
-  if (loading || !project) {
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const handleCreateProject = async () => {
+    try {
+      setIsCreating(true);
+      setCreateError(null);
+      await vehicle360Service.createProject(vehicleId, viewType);
+      await reload();
+    } catch (err: any) {
+      setCreateError(err.message || "Erro ao criar projeto");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  if (loading) {
     return <div className="flex items-center justify-center h-[100dvh] bg-gray-50"><Loader2 className="animate-spin text-indigo-500 w-12 h-12" /></div>;
+  }
+
+  // Assuming error is returned by useVehicle360, but if not we can just show empty state
+  // We'll just show the create button if no project
+  if (!project) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-gray-50 h-[100dvh]">
+        <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 shadow-sm shrink-0">
+          <div className="flex items-center gap-4">
+            <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors">
+              <ArrowLeft size={20} />
+            </button>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <CarIcon size={20} className="text-indigo-600" />
+                {car.brand} {car.model}
+              </h1>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Nenhum projeto 360° {viewType === 'exterior' ? 'externo' : 'interno'}
+          </h2>
+          <p className="text-gray-500 mb-6">
+            Este veículo ainda não possui uma visão 360° {viewType === 'exterior' ? 'externa' : 'interna'}.
+          </p>
+          {createError && (
+            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg max-w-md">
+              {createError}
+            </div>
+          )}
+          <button
+            onClick={handleCreateProject}
+            disabled={isCreating}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isCreating ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
+            Criar projeto 360 {viewType === 'exterior' ? 'externo' : 'interno'}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const handleStageClick = (x: number, y: number) => {
@@ -312,7 +370,7 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
         <div className="p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Bem-vindo ao Estúdio 360°</h3>
           <p className="text-gray-600 mb-6">Para começar, faça o upload das imagens do giro 360 do veículo.</p>
-          <FrameUploader onUpload={uploadFrames} uploading={uploading} progress={uploadProgress} />
+          <FrameUploader viewType={viewType} currentFrameCount={0} onUpload={async (files, m) => { await uploadFrames(files, m); }} uploading={uploading} progress={uploadProgress} />
         </div>
       );
     }
@@ -466,6 +524,18 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
       );
     }
     
+    if (mode === 'upload') {
+      return (
+        <div className="p-6 h-full flex flex-col overflow-y-auto">
+          <div className="flex justify-between items-center mb-6">
+             <h3 className="text-lg font-bold text-gray-900">Upload de Imagens</h3>
+             <button onClick={() => setMode('idle')} className="text-gray-400 hover:text-gray-700"><X size={20}/></button>
+          </div>
+          <FrameUploader viewType={viewType} currentFrameCount={totalFrames} onUpload={async (files, m) => { await uploadFrames(files, m); setMode('idle'); }} uploading={uploading} progress={uploadProgress} />
+        </div>
+      );
+    }
+    
     if (mode === 'checklist') {
        const isComplete = project.status === 'completed';
        return (
@@ -579,8 +649,24 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
           ))}
         </div>
         
-        <div className="p-4 border-t border-gray-200 bg-white shrink-0">
-          <button onClick={() => setMode('checklist')} className="w-full flex items-center justify-center gap-2 py-3 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 shadow-sm transition-transform active:scale-95">
+        <div className="p-4 border-t border-gray-200 bg-white shrink-0 space-y-2">
+          <button onClick={() => {
+            if (totalFrames <= 1) {
+              alert("Não é possível excluir o último frame.");
+              return;
+            }
+            if (window.confirm(`Excluir o frame ${currentFrame + 1}? Os frames seguintes e os rastreamentos serão renumerados. Esta ação não poderá ser desfeita.`)) {
+              if (currentFrameData) removeFrame(currentFrameData);
+            }
+          }} className="w-full flex items-center justify-center gap-2 py-2 bg-red-50 text-red-600 font-medium rounded-xl hover:bg-red-100 shadow-sm transition-colors text-sm">
+             <Trash2 size={16} /> Excluir frame atual
+          </button>
+          
+          <button onClick={() => setMode('upload')} className="w-full flex items-center justify-center gap-2 py-2 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 shadow-sm transition-colors text-sm">
+             <UploadCloud size={16} /> Adicionar/Substituir Imagens
+          </button>
+
+          <button onClick={() => setMode('checklist')} className="w-full flex items-center justify-center gap-2 py-3 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 shadow-sm transition-transform active:scale-95 mt-2">
              <CheckCircle2 size={18} /> Resumo e Publicação
           </button>
         </div>
@@ -591,8 +677,8 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
   return (
     <div ref={workspaceRef} className="fixed inset-0 z-50 flex flex-col bg-gray-950 h-[100dvh]">
       {!isFullscreen && (
-        <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 shadow-sm shrink-0">
-          <div className="flex items-center gap-4">
+        <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 shadow-sm shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-4 shrink-0">
             <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors">
               <ArrowLeft size={20} />
             </button>
@@ -601,10 +687,24 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
                 <CarIcon size={20} className="text-indigo-600" />
                 {car.brand} {car.model}
               </h1>
-              <div className="text-xs font-medium text-gray-500">{car.plateEnd} • {totalFrames} frames</div>
+              <div className="text-xs font-medium text-gray-500">Editando visão {viewType === 'exterior' ? 'externa' : 'interna'} • {car.plateEnd} • {totalFrames} frames</div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 bg-gray-100 p-1 rounded-lg shrink-0 mx-4">
+            <button
+              onClick={() => onViewTypeChange('exterior')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewType === 'exterior' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              360° Externo
+            </button>
+            <button
+              onClick={() => onViewTypeChange('interior')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewType === 'interior' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              360° Interno
+            </button>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
              <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${project.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                {project.status === 'completed' ? 'Publicado' : 'Rascunho'}
              </div>
@@ -679,15 +779,33 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onBack }: { vehicleId: 
                    }
                    
                    return (
-                     <button 
+                     <div 
                        key={f.id}
-                       onClick={() => setCurrentFrame(idx)}
-                       className={`relative h-12 sm:h-16 aspect-video shrink-0 rounded-md overflow-hidden border-2 transition-all ${idx === currentFrame ? 'ring-2 ring-white scale-105 z-10' : 'hover:border-gray-500'} ${frameClasses}`}
+                       className={`relative group h-12 sm:h-16 aspect-video shrink-0 rounded-md overflow-hidden border-2 transition-all ${idx === currentFrame ? 'ring-2 ring-white scale-105 z-10' : 'hover:border-gray-500'} ${frameClasses}`}
                      >
-                       <img src={f.imageUrl} alt="" className="w-full h-full object-cover" />
-                       <div className="absolute top-0 left-0 bg-black/60 text-white text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-br font-mono">{idx + 1}</div>
+                       <button onClick={() => setCurrentFrame(idx)} className="w-full h-full focus:outline-none">
+                         <img src={f.imageUrl} alt="" className="w-full h-full object-cover" />
+                       </button>
+                       <div className="absolute top-0 left-0 bg-black/60 text-white text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-br font-mono pointer-events-none">{idx + 1}</div>
                        {indicator}
-                     </button>
+                       
+                       <button 
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           if (project.frames && project.frames.length <= 1) {
+                             alert("Não é possível excluir o último frame.");
+                             return;
+                           }
+                           if (window.confirm(`Excluir o frame ${idx + 1}? Os rastreamentos serão renumerados. Ação irreversível.`)) {
+                             removeFrame(f);
+                           }
+                         }}
+                         className="absolute top-1 right-1 w-5 h-5 bg-red-600/90 hover:bg-red-700 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20 focus:opacity-100"
+                         title="Excluir frame"
+                       >
+                         <Trash2 size={10} />
+                       </button>
+                     </div>
                    );
                  })}
               </div>
