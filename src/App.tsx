@@ -18,6 +18,7 @@ import CarCard from './components/CarCard';
 import CarDetails from './components/CarDetails';
 import AdminPanel from './components/AdminPanel';
 import ClientArea from './components/ClientArea';
+import Vehicle360MobileCapture from './pages/Vehicle360MobileCapture';
 
 // Supabase services and hooks
 import { useVehicles } from './hooks/useVehicles';
@@ -761,6 +762,8 @@ export default function App() {
               onAdminToggle={() => navigate('/admin')}
             />
           } />
+
+          <Route path="/captura-360/:token" element={<Vehicle360MobileCapture />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

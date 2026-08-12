@@ -3,9 +3,10 @@ import { useVehicle360 } from '../hooks/useVehicle360';
 import { vehicle360Service } from '../services/vehicle360.service';
 import { ImageCoordinateStage } from './360/ImageCoordinateStage';
 import { FrameUploader } from './360/FrameUploader';
+import { MobileCaptureModal } from './360/MobileCaptureModal';
 import { 
   Trash2, CheckCircle2, ChevronLeft, ChevronRight, Plus, AlertTriangle, AlertCircle, 
-  X, Info, Edit2, Move, Focus, Eye, EyeOff, Save, Play, ArrowLeft, Loader2, Camera, MousePointer2, Maximize, Minimize, PanelRightClose, PanelRightOpen, Car as CarIcon
+  X, Info, Edit2, Move, Focus, Eye, EyeOff, Save, Play, ArrowLeft, Loader2, Camera, MousePointer2, Maximize, Minimize, PanelRightClose, PanelRightOpen, Car as CarIcon, Smartphone
 , UploadCloud } from 'lucide-react';
 import { Car, Vehicle360Hotspot, Vehicle360DamageMarker, Vehicle360MarkerPosition } from '../types';
 
@@ -107,6 +108,7 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onViewTypeChange, onBac
 
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [showMobileModal, setShowMobileModal] = useState(false);
 
   const handleCreateProject = async () => {
     try {
@@ -370,6 +372,9 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onViewTypeChange, onBac
         <div className="p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Bem-vindo ao Estúdio 360°</h3>
           <p className="text-gray-600 mb-6">Para começar, faça o upload das imagens do giro 360 do veículo.</p>
+          <button onClick={() => setShowMobileModal(true)} className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl mb-4 shadow-sm transition-colors">
+            <Smartphone size={20} /> Capturar com celular
+          </button>
           <FrameUploader viewType={viewType} currentFrameCount={0} onUpload={async (files, m) => { await uploadFrames(files, m); }} uploading={uploading} progress={uploadProgress} />
         </div>
       );
@@ -665,6 +670,10 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onViewTypeChange, onBac
           <button onClick={() => setMode('upload')} className="w-full flex items-center justify-center gap-2 py-2 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 shadow-sm transition-colors text-sm">
              <UploadCloud size={16} /> Adicionar/Substituir Imagens
           </button>
+          
+          <button onClick={() => setShowMobileModal(true)} className="w-full flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 font-medium rounded-xl hover:bg-indigo-100 shadow-sm transition-colors text-sm">
+             <Smartphone size={16} /> Capturar com celular
+          </button>
 
           <button onClick={() => setMode('checklist')} className="w-full flex items-center justify-center gap-2 py-3 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 shadow-sm transition-transform active:scale-95 mt-2">
              <CheckCircle2 size={18} /> Resumo e Publicação
@@ -820,6 +829,15 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onViewTypeChange, onBac
              {renderRightPanel()}
          </div>
       </div>
+      
+      <MobileCaptureModal 
+        isOpen={showMobileModal}
+        onClose={() => setShowMobileModal(false)}
+        projectId={project.id}
+        vehicleId={vehicleId}
+        viewType={viewType}
+        existingFramesCount={totalFrames}
+      />
     </div>
   );
 }
