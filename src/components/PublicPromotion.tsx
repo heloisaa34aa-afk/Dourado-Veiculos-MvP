@@ -71,12 +71,30 @@ export function PublicPromotion({ banners, placement }: PublicPromotionProps) {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={banner.name} className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
-      <aside style={{ backgroundColor: banner.background_color, color: banner.text_color }} className="relative max-h-[90dvh] w-full max-w-xl overflow-hidden rounded-3xl shadow-2xl">
-        <BannerPicture banner={banner} className="max-h-[72dvh] w-full object-contain" />
-        {(banner.title || banner.subtitle || banner.cta_label) && <PromotionContent banner={banner} />}
+    <div role="dialog" aria-modal="true" aria-label={banner.name} className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-2 backdrop-blur-sm sm:p-5">
+      <aside
+        style={{ backgroundColor: banner.background_color, color: banner.text_color }}
+        className="relative max-h-[94dvh] max-w-[96vw] overflow-hidden rounded-2xl shadow-2xl sm:rounded-3xl"
+      >
+        {banner.desktop_image_url || banner.mobile_image_url ? (
+          banner.cta_url ? (
+            <a href={banner.cta_url} aria-label={banner.cta_label || banner.title || banner.name} className="block">
+              <BannerPicture banner={banner} className="block max-h-[94dvh] w-[96vw] max-w-[96vw] object-contain sm:h-auto sm:w-auto" />
+            </a>
+          ) : (
+            <BannerPicture banner={banner} className="block max-h-[94dvh] w-[96vw] max-w-[96vw] object-contain sm:h-auto sm:w-auto" />
+          )
+        ) : (
+          <div className="min-h-80 w-[min(92vw,560px)]">
+            <PromotionContent banner={banner} />
+          </div>
+        )}
         {banner.is_dismissible && <button onClick={dismiss} aria-label="Fechar promoção" className="absolute right-3 top-3 z-20 rounded-full bg-black/60 p-2 text-white backdrop-blur hover:bg-black/80"><X className="h-5 w-5" /></button>}
-        {banner.show_once_per_session && banner.is_dismissible && <button onClick={dismiss} className="w-full border-t border-white/10 py-3 text-xs font-semibold underline opacity-80">Não mostrar novamente nesta visita</button>}
+        {banner.show_once_per_session && banner.is_dismissible && (
+          <button onClick={dismiss} className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/65 px-4 py-2 text-[11px] font-semibold text-white underline backdrop-blur hover:bg-black/80">
+            Não mostrar novamente nesta visita
+          </button>
+        )}
       </aside>
     </div>
   );

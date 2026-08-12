@@ -24,4 +24,11 @@ describe('PublicPromotion', () => {
     rerender(<PublicPromotion banners={[banner]} placement="popup" />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+
+  it('uses the artwork as the entire popup without duplicating promotional copy', () => {
+    render(<PublicPromotion banners={[banner]} placement="popup" />);
+    expect(screen.getByRole('img', { name: 'Troque de carro' })).toHaveClass('max-h-[94dvh]');
+    expect(screen.getByRole('link', { name: 'Falar agora' })).toContainElement(screen.getByRole('img'));
+    expect(screen.queryByRole('heading', { name: 'Troque de carro' })).not.toBeInTheDocument();
+  });
 });
