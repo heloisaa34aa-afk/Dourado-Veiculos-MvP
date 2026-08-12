@@ -1,11 +1,15 @@
 -- Fix remove_vehicle_360_frame
+BEGIN;
 
-CREATE OR REPLACE FUNCTION public.remove_vehicle_360_frame(
+DROP FUNCTION IF EXISTS public.remove_vehicle_360_frame(UUID, UUID);
+
+CREATE FUNCTION public.remove_vehicle_360_frame(
     p_project_id UUID,
     p_frame_id UUID
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
 DECLARE
     v_frame_number INT;
@@ -13,19 +17,43 @@ DECLARE
     v_total_frames INT;
     v_remaining_frames INT;
     v_offset INT := 100000;
+    v_view_type TEXT;
+    v_current_status TEXT;
+    v_min_frames INT;
+    v_was_unpublished BOOLEAN := false;
+    v_affected_hotspot_ids UUID[];
+    v_affected_damage_ids UUID[];
+    v_target_frame INT;
+    v_id UUID;
+    v_closest_frame INT;
+    v_closest_x NUMERIC;
+    v_closest_y NUMERIC;
 BEGIN
-    -- 1. Validar usuário autorizado (usando RLS existente ou assumindo segurança definer)
-    IF auth.uid() IS NULL THEN
-        RAISE EXCEPTION 'Not authenticated';
+    -- 1. Validar administrador
+    IF auth.uid() IS NULL OR NOT EXISTS (
+        SELECT 1
+        FROM public.admins
+        WHERE id = auth.uid()
+    ) THEN
+        RAISE EXCEPTION 'Administrator authentication required'
+            USING ERRCODE = '42501';
     END IF;
 
     -- 2. Bloquear o projeto
-    PERFORM id FROM public.vehicle_360_projects WHERE id = p_project_id FOR UPDATE;
+    SELECT view_type, status INTO v_view_type, v_current_status
+    FROM public.vehicle_360_projects
+    WHERE id = p_project_id
+    FOR UPDATE;
 
-    -- 3. Confirmar que o frame pertence ao projeto e obter dados
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Project not found';
+    END IF;
+
+    -- 3. Confirmar que o frame pertence ao projeto e bloquear
     SELECT frame_number, storage_path INTO v_frame_number, v_storage_path
     FROM public.vehicle_360_frames
-    WHERE id = p_frame_id AND project_id = p_project_id;
+    WHERE id = p_frame_id AND project_id = p_project_id
+    FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Frame not found in project';
@@ -37,10 +65,23 @@ BEGIN
         RAISE EXCEPTION 'Cannot remove the last frame';
     END IF;
 
-    -- 6. Excluir posições daquele número
+    -- 5. Capturar os IDs dos marcadores originalmente ancorados no frame que será removido
+    SELECT COALESCE(array_agg(id), ARRAY[]::UUID[])
+    INTO v_affected_hotspot_ids
+    FROM public.vehicle_360_hotspots
+    WHERE project_id = p_project_id
+      AND frame_number = v_frame_number;
+
+    SELECT COALESCE(array_agg(id), ARRAY[]::UUID[])
+    INTO v_affected_damage_ids
+    FROM public.vehicle_360_damage_markers
+    WHERE project_id = p_project_id
+      AND frame_number = v_frame_number;
+
+    -- 6. Excluir posições vinculadas a este frame
     DELETE FROM public.vehicle_360_hotspot_positions
-    WHERE frame_number = v_frame_number 
-      AND hotspot_id IN (SELECT id FROM public.vehicle_360_hotspots WHERE project_id = p_project_id);
+    WHERE frame_number = v_frame_number
+       AND hotspot_id IN (SELECT id FROM public.vehicle_360_hotspots WHERE project_id = p_project_id);
 
     DELETE FROM public.vehicle_360_damage_marker_positions
     WHERE frame_number = v_frame_number
@@ -49,18 +90,16 @@ BEGIN
     -- 7. Excluir o frame selecionado
     DELETE FROM public.vehicle_360_frames WHERE id = p_frame_id;
 
-    -- 8. Renumerar frames posteriores sem colisão
-    -- Adicionar offset
+    -- 8. Renumerar frames posteriores (evitando colisões via offset)
     UPDATE public.vehicle_360_frames
     SET frame_number = frame_number + v_offset
     WHERE project_id = p_project_id AND frame_number > v_frame_number;
 
-    -- Subtrair offset + 1
     UPDATE public.vehicle_360_frames
     SET frame_number = frame_number - v_offset - 1
     WHERE project_id = p_project_id AND frame_number >= v_offset;
 
-    -- 9. Mesma renumeração nas posições posteriores
+    -- 9. Renumerar posições posteriores
     UPDATE public.vehicle_360_hotspot_positions
     SET frame_number = frame_number + v_offset
     WHERE frame_number > v_frame_number
@@ -81,8 +120,7 @@ BEGIN
     WHERE frame_number >= v_offset
       AND marker_id IN (SELECT id FROM public.vehicle_360_damage_markers WHERE project_id = p_project_id);
 
-    -- 10. Ajustar frame_number principal dos hotspots e damage markers
-    -- Maiores diminuem 1
+    -- 10. Ajustar frame_number principal dos hotspots e damage markers > removido
     UPDATE public.vehicle_360_hotspots
     SET frame_number = frame_number - 1
     WHERE project_id = p_project_id AND frame_number > v_frame_number;
@@ -90,57 +128,106 @@ BEGIN
     UPDATE public.vehicle_360_damage_markers
     SET frame_number = frame_number - 1
     WHERE project_id = p_project_id AND frame_number > v_frame_number;
+    
+    -- Contagem real APÓS a exclusão e renumeração
+    SELECT COUNT(*)
+    INTO v_remaining_frames
+    FROM public.vehicle_360_frames
+    WHERE project_id = p_project_id;
+    
+    v_target_frame := LEAST(v_frame_number, v_remaining_frames - 1);
 
-    -- Iguais ao removido passam para uma posição sobrevivente ou 0 se não houver
-    UPDATE public.vehicle_360_hotspots h
-    SET frame_number = COALESCE((
-            SELECT MIN(p.frame_number) 
-            FROM public.vehicle_360_hotspot_positions p 
-            WHERE p.hotspot_id = h.id
-        ), 0)
-    WHERE h.project_id = p_project_id AND h.frame_number = v_frame_number;
+    -- 11. Reposicionar marcadores que estavam no frame removido (usando as variáveis capturadas)
+    FOREACH v_id IN ARRAY v_affected_hotspot_ids
+    LOOP
+        v_closest_frame := NULL;
+        
+        -- Achar a posição sobrevivente mais próxima do target_frame
+        SELECT frame_number, pos_x, pos_y 
+        INTO v_closest_frame, v_closest_x, v_closest_y
+        FROM public.vehicle_360_hotspot_positions
+        WHERE hotspot_id = v_id
+        ORDER BY ABS(frame_number - v_target_frame), frame_number
+        LIMIT 1;
+        
+        IF v_closest_frame IS NOT NULL THEN
+            UPDATE public.vehicle_360_hotspots
+            SET frame_number = v_closest_frame,
+                pos_x = v_closest_x,
+                pos_y = v_closest_y
+            WHERE id = v_id;
+        ELSE
+            -- Nenhuma posição sobrevivente, usar target_frame e manter as coords
+            UPDATE public.vehicle_360_hotspots
+            SET frame_number = v_target_frame
+            WHERE id = v_id;
+        END IF;
+    END LOOP;
 
-    UPDATE public.vehicle_360_damage_markers m
-    SET frame_number = COALESCE((
-            SELECT MIN(p.frame_number) 
-            FROM public.vehicle_360_damage_marker_positions p 
-            WHERE p.marker_id = m.id
-        ), 0)
-    WHERE m.project_id = p_project_id AND m.frame_number = v_frame_number;
+    FOREACH v_id IN ARRAY v_affected_damage_ids
+    LOOP
+        v_closest_frame := NULL;
+        
+        -- Achar a posição sobrevivente mais próxima do target_frame
+        SELECT frame_number, pos_x, pos_y 
+        INTO v_closest_frame, v_closest_x, v_closest_y
+        FROM public.vehicle_360_damage_marker_positions
+        WHERE marker_id = v_id
+        ORDER BY ABS(frame_number - v_target_frame), frame_number
+        LIMIT 1;
+        
+        IF v_closest_frame IS NOT NULL THEN
+            UPDATE public.vehicle_360_damage_markers
+            SET frame_number = v_closest_frame,
+                pos_x = v_closest_x,
+                pos_y = v_closest_y
+            WHERE id = v_id;
+        ELSE
+            -- Nenhuma posição sobrevivente, usar target_frame e manter as coords
+            UPDATE public.vehicle_360_damage_markers
+            SET frame_number = v_target_frame
+            WHERE id = v_id;
+        END IF;
+    END LOOP;
 
-    -- Atualizar pos_x e pos_y
-    UPDATE public.vehicle_360_hotspots h
-    SET pos_x = p.pos_x,
-        pos_y = p.pos_y
-    FROM public.vehicle_360_hotspot_positions p
-    WHERE h.project_id = p_project_id 
-      AND p.hotspot_id = h.id
-      AND h.frame_number = p.frame_number;
+    -- 12. Atualizar status e frame_count na mesma transação
+    IF v_view_type = 'exterior' THEN
+        v_min_frames := 24;
+    ELSE
+        v_min_frames := 8;
+    END IF;
 
-    UPDATE public.vehicle_360_damage_markers m
-    SET pos_x = p.pos_x,
-        pos_y = p.pos_y
-    FROM public.vehicle_360_damage_marker_positions p
-    WHERE m.project_id = p_project_id 
-      AND p.marker_id = m.id
-      AND m.frame_number = p.frame_number;
+    IF v_current_status = 'completed' AND v_remaining_frames < v_min_frames THEN
+        UPDATE public.vehicle_360_projects
+        SET status = 'draft',
+            frame_count = v_remaining_frames,
+            updated_at = NOW()
+        WHERE id = p_project_id;
+        
+        v_was_unpublished := true;
+    ELSE
+        UPDATE public.vehicle_360_projects
+        SET frame_count = v_remaining_frames,
+            updated_at = NOW()
+        WHERE id = p_project_id;
+    END IF;
 
-    -- 11. Nunca deixar frame_number negativo (COALESCE fallback para 0 ja trata) ou acima do ultimo
-    -- (O update renumera certinho, e 0 sempre será válido pois impedimos excluir o último)
-
-    -- 12. Atualizar frame_count
-    SELECT COUNT(*) INTO v_remaining_frames FROM public.vehicle_360_frames WHERE project_id = p_project_id;
-    UPDATE public.vehicle_360_projects
-    SET frame_count = v_remaining_frames,
-        updated_at = NOW()
-    WHERE id = p_project_id;
-
-    -- 14. Retornar JSON
+    -- 13. Retornar JSON
     RETURN jsonb_build_object(
         'deleted_frame_id', p_frame_id,
         'deleted_frame_number', v_frame_number,
         'storage_path', v_storage_path,
-        'remaining_frames', v_remaining_frames
+        'remaining_frames', v_remaining_frames,
+        'project_status', CASE WHEN v_was_unpublished THEN 'draft' ELSE v_current_status END,
+        'was_unpublished', v_was_unpublished
     );
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.remove_vehicle_360_frame(UUID, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.remove_vehicle_360_frame(UUID, UUID) FROM anon;
+GRANT EXECUTE ON FUNCTION public.remove_vehicle_360_frame(UUID, UUID) TO authenticated;
+
+COMMIT;
+
+NOTIFY pgrst, 'reload schema';

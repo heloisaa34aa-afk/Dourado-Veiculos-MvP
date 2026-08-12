@@ -374,6 +374,7 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
     setUploading(true); // Treat as upload to lock UI
     try {
       const response = await vehicle360Service.removeFrame(project.id, frame.id);
+      
       if (response && response.storage_path) {
         try {
           await vehicle360Storage.deleteStorageObject(response.storage_path);
@@ -382,13 +383,8 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
         }
       }
       
-      const updatedProject = await vehicle360Service.getProjectByVehicleId(vehicleId);
-      if (updatedProject && updatedProject.status === 'completed') {
-        const { valid } = validation360.checklist360(updatedProject, updatedProject.frames || [], viewType);
-        if (!valid) {
-          await unpublishProject();
-          alert("O projeto voltou para rascunho porque ficou abaixo do mínimo de publicação.");
-        }
+      if (response && response.was_unpublished) {
+        alert("O projeto voltou para rascunho porque ficou abaixo do mínimo de publicação.");
       }
 
       await loadProject();
@@ -397,7 +393,11 @@ export function useVehicle360(vehicleId: string, mode: 'public' | 'admin' = 'pub
       }
     } catch(err: any) {
       setError(err);
-      alert(err.message || "Erro ao excluir o frame");
+      if (err.code === '42501' || err.message?.includes('42501')) {
+        alert("Entre com uma conta administrativa real para excluir frames.");
+      } else {
+        alert(err.message || "Erro ao excluir o frame");
+      }
       throw err;
     } finally {
       setUploading(false);

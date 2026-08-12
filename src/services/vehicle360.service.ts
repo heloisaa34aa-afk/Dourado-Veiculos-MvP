@@ -326,7 +326,7 @@ export const vehicle360Service = {
     if (error) throw error;
   },
 
-  async removeFrame(projectId: string, frameId: string): Promise<{deleted_frame_id: string, deleted_frame_number: number, storage_path: string, remaining_frames: number}> {
+  async removeFrame(projectId: string, frameId: string): Promise<{deleted_frame_id: string, deleted_frame_number: number, storage_path: string, remaining_frames: number, project_status: string, was_unpublished: boolean}> {
     const { data, error } = await supabase.rpc('remove_vehicle_360_frame', {
       p_project_id: projectId,
       p_frame_id: frameId
