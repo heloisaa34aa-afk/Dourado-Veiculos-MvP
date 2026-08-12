@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Edit2, Eye, Image as ImageIcon, Loader2, Plus, Save, Trash2, Upload, X } from 'lucide-react';
 import { bannerService, BannerInput, BannerPlacement, SiteBanner } from '../services/banner.service';
+import { BANNER_FORMAT_SPECS, BannerImageSize, bannerSizeLabel } from '../utils/bannerFormats';
 
 const emptyBanner: BannerInput = {
   name: '', placement: 'home_inline', title: '', subtitle: '',
@@ -12,11 +13,9 @@ const emptyBanner: BannerInput = {
   starts_at: null, ends_at: null, priority: 0,
 };
 
-const placementLabels: Record<BannerPlacement, string> = {
-  top_bar: 'Faixa superior',
-  home_inline: 'Banner horizontal na página inicial',
-  popup: 'Popup promocional',
-};
+const placementLabels: Record<BannerPlacement, string> = Object.fromEntries(
+  Object.entries(BANNER_FORMAT_SPECS).map(([key, value]) => [key, value.label]),
+) as Record<BannerPlacement, string>;
 
 function toLocalDate(value: string | null) {
   if (!value) return '';
@@ -34,6 +33,7 @@ export function BannerManager() {
   const [uploading, setUploading] = useState<'desktop' | 'mobile' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selectedFormat = BANNER_FORMAT_SPECS[form.placement];
 
   const load = useCallback(async () => {
     try {
@@ -148,9 +148,13 @@ export function BannerManager() {
           <Field label="Link do botão"><input type="url" value={form.cta_url ?? ''} onChange={e => setForm({ ...form, cta_url: e.target.value })} placeholder="https://wa.me/..." className="form-input" /></Field>
         </div>
 
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+          <strong>{selectedFormat.label}:</strong> use {bannerSizeLabel(selectedFormat.desktop)} no computador e {bannerSizeLabel(selectedFormat.mobile)} no celular. As áreas de upload abaixo mudam automaticamente conforme o formato.
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
-          <ImageUpload label="Imagem desktop" hint="Recomendado: 1600 × 500 (horizontal) ou 900 × 1100 (popup)" url={form.desktop_image_url} busy={uploading === 'desktop'} onFile={file => void upload(file, 'desktop')} onClear={() => setForm({ ...form, desktop_image_url: null, desktop_storage_path: null })} />
-          <ImageUpload label="Imagem celular (opcional)" hint="Recomendado: 1080 × 1350" url={form.mobile_image_url} busy={uploading === 'mobile'} onFile={file => void upload(file, 'mobile')} onClear={() => setForm({ ...form, mobile_image_url: null, mobile_storage_path: null })} />
+          <ImageUpload label="Imagem desktop" size={selectedFormat.desktop} url={form.desktop_image_url} busy={uploading === 'desktop'} onFile={file => void upload(file, 'desktop')} onClear={() => setForm({ ...form, desktop_image_url: null, desktop_storage_path: null })} />
+          <ImageUpload label="Imagem celular (opcional)" size={selectedFormat.mobile} url={form.mobile_image_url} busy={uploading === 'mobile'} onFile={file => void upload(file, 'mobile')} onClear={() => setForm({ ...form, mobile_image_url: null, mobile_storage_path: null })} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -187,4 +191,7 @@ export function BannerManager() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block text-xs font-bold uppercase text-slate-600">{label}<div className="mt-1.5 [&_.form-input]:w-full [&_.form-input]:rounded-xl [&_.form-input]:border [&_.form-input]:border-slate-200 [&_.form-input]:px-3 [&_.form-input]:py-2.5 [&_.form-input]:text-sm [&_.form-input]:font-medium [&_.form-input]:outline-none focus-within:[&_.form-input]:border-red-500">{children}</div></label>; }
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) { return <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="h-4 w-4 accent-red-600" />{label}</label>; }
-function ImageUpload({ label, hint, url, busy, onFile, onClear }: { label: string; hint: string; url: string | null; busy: boolean; onFile: (file?: File) => void; onClear: () => void }) { return <div className="rounded-2xl border border-slate-200 p-4"><div className="mb-3"><p className="text-sm font-extrabold text-slate-800">{label}</p><p className="text-[11px] text-slate-400">{hint}</p></div>{url ? <div className="relative overflow-hidden rounded-xl bg-slate-100"><img src={url} alt="Prévia" className="h-40 w-full object-contain" /><button type="button" onClick={onClear} className="absolute right-2 top-2 rounded-full bg-black/65 p-1.5 text-white"><X className="h-4 w-4" /></button></div> : <label className="flex h-40 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-center text-xs font-bold text-slate-500 hover:border-red-400">{busy ? <Loader2 className="mb-2 h-6 w-6 animate-spin" /> : <Upload className="mb-2 h-6 w-6" />}Selecionar imagem<input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => onFile(e.target.files?.[0])} /></label>}</div>; }
+function ImageUpload({ label, size, url, busy, onFile, onClear }: { label: string; size: BannerImageSize; url: string | null; busy: boolean; onFile: (file?: File) => void; onClear: () => void }) {
+  const previewStyle = { aspectRatio: `${size.width} / ${size.height}` };
+  return <div className="rounded-2xl border border-slate-200 p-4"><div className="mb-3 flex items-start justify-between gap-2"><div><p className="text-sm font-extrabold text-slate-800">{label}</p><p className="text-[11px] text-slate-400">{size.description}</p></div><span className="shrink-0 rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-extrabold text-white">{bannerSizeLabel(size)}</span></div>{url ? <div style={previewStyle} className="relative mx-auto max-h-72 min-h-28 w-full overflow-hidden rounded-xl bg-slate-100"><img src={url} alt={`Prévia ${bannerSizeLabel(size)}`} className="h-full w-full object-contain" /><button type="button" onClick={onClear} className="absolute right-2 top-2 rounded-full bg-black/65 p-1.5 text-white"><X className="h-4 w-4" /></button></div> : <label style={previewStyle} className="mx-auto flex max-h-72 min-h-28 w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-center text-xs font-bold text-slate-500 hover:border-red-400">{busy ? <Loader2 className="mb-2 h-6 w-6 animate-spin" /> : <Upload className="mb-2 h-6 w-6" />}Selecionar imagem<span className="mt-1 text-[10px] font-medium text-slate-400">Proporção {size.width}:{size.height}</span><input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => onFile(e.target.files?.[0])} /></label>}</div>;
+}
