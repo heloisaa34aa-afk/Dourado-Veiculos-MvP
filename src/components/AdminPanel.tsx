@@ -9,7 +9,7 @@ import {
   Car, Eye, Phone, TrendingUp, BarChart3, Settings, 
   MessageSquare, UserCheck, Calendar, Gauge, Fuel, SlidersHorizontal,
   DollarSign, Package, CheckCircle2, ChevronRight, RefreshCw, Upload, Image as ImageIcon,
-  Users, FileSpreadsheet, ClipboardList, MapPin, RotateCcw
+  Users, FileSpreadsheet, ClipboardList, MapPin, RotateCcw, Megaphone
 , Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Car as CarType, LeadMessage, CarCategory, Quote, UserProfile } from '../types';
@@ -21,6 +21,7 @@ import { Admin360Module } from './Admin360Module';
 import { ErrorBoundary } from './ErrorBoundary';
 import { vehicleMediaService } from '../services/vehicleMedia.service';
 import { useCategories } from '../hooks/useCategories';
+import { BannerManager } from './BannerManager';
 
 const trackingLabEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRACKING_LAB === 'true';
 
@@ -45,7 +46,7 @@ export default function AdminPanel({
   onDeleteMessage
 }: AdminPanelProps) {
   // Navigation active tab
-  const [activeSection, setActiveSection] = useState<'dashboard' | 'vehicles' | 'messages' | 'quotes' | 'users' | 'settings' | 'vehicle360' | 'trackingLab'>('dashboard');
+  const [activeSection, setActiveSection] = useState<'dashboard' | 'vehicles' | 'messages' | 'quotes' | 'users' | 'settings' | 'vehicle360' | 'banners' | 'trackingLab'>('dashboard');
 
   // Search and filter inside tables
   const [vehicleSearch, setVehicleSearch] = useState('');
@@ -566,6 +567,17 @@ export default function AdminPanel({
             <RotateCcw className="w-4 h-4" />
             <span>Veículo 360°</span>
           </button>
+          <button
+            onClick={() => setActiveSection('banners')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap md:w-full ${
+              activeSection === 'banners'
+                ? 'bg-red-600 text-white shadow-md'
+                : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
+            }`}
+          >
+            <Megaphone className="w-4 h-4" />
+            <span>Banners e Promoções</span>
+          </button>
           {trackingLabEnabled && (
             <button
               onClick={() => setActiveSection('trackingLab')}
@@ -671,6 +683,7 @@ export default function AdminPanel({
               {activeSection === 'users' && 'Gerenciamento de Usuários'}
               {activeSection === 'settings' && 'Configurações da Concessionária'}
               {activeSection === 'vehicle360' && 'Módulo Inspetor Veículo 360°'}
+              {activeSection === 'banners' && 'Banners e Promoções'}
               {activeSection === 'trackingLab' && 'Tracking Lab 360° (MVP)'}
             </h2>
             <p className="text-sm text-slate-500 mt-1">
@@ -681,6 +694,7 @@ export default function AdminPanel({
               {activeSection === 'users' && 'Visualize os clientes e administradores registrados na plataforma.'}
               {activeSection === 'settings' && 'Gerencie informações da loja, canais de atendimento e canais sociais.'}
               {activeSection === 'vehicle360' && 'Gerencie rotação de imagens 360° e marque os pontos de avarias para exibição pública.'}
+              {activeSection === 'banners' && 'Crie campanhas, popups e faixas promocionais sem alterar o código do site.'}
               {activeSection === 'trackingLab' && 'Validação e otimização do rastreamento de pontos usando TAPIR.'}
             </p>
           </div>
@@ -1419,6 +1433,11 @@ export default function AdminPanel({
         {activeSection === 'vehicle360' && (
           <ErrorBoundary onBackToDashboard={() => setActiveSection('dashboard')}>
             <Admin360Module cars={cars} />
+          </ErrorBoundary>
+        )}
+        {activeSection === 'banners' && (
+          <ErrorBoundary onBackToDashboard={() => setActiveSection('dashboard')}>
+            <BannerManager />
           </ErrorBoundary>
         )}
         {activeSection === 'trackingLab' && trackingLabEnabled && (

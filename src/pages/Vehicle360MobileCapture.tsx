@@ -103,6 +103,13 @@ export default function Vehicle360MobileCapture() {
   );
   const firstMissing = session ? findFirstMissingSlot(frames, session.target_frame_count) : 0;
   const isComplete = Boolean(session && firstMissing === session.target_frame_count);
+  const minimumFrameCount = session?.view_type === 'interior' ? 8 : 24;
+  const confirmedFrameCount = confirmedBySlot.size;
+  const canFinalize = Boolean(
+    session
+    && confirmedFrameCount >= minimumFrameCount
+    && firstMissing === confirmedFrameCount,
+  );
   const instruction = session
     ? getCaptureInstruction(session.view_type, currentStep, session.target_frame_count)
     : null;
@@ -176,7 +183,10 @@ export default function Vehicle360MobileCapture() {
   };
 
   const handleFinalize = async () => {
-    if (!token || !isComplete) return;
+    if (!token || !canFinalize) return;
+    if (!isComplete && !window.confirm(
+      `Finalizar agora com ${confirmedFrameCount} fotos? As ${session?.target_frame_count ?? 0} fotos melhoram a fluidez, mas não são obrigatórias.`,
+    )) return;
     try {
       setBusy(true);
       setError(null);
@@ -313,7 +323,18 @@ export default function Vehicle360MobileCapture() {
             <button onClick={() => void handleConfirm()} disabled={busy} className="rounded-2xl bg-indigo-600 py-4 font-bold disabled:opacity-50">{busy ? <Loader2 className="inline h-5 w-5 animate-spin" /> : <><Check className="mr-1 inline h-5 w-5" />Confirmar</>}</button>
           </div>
         ) : (
-          <button onClick={() => fileInputRef.current?.click()} disabled={busy} className="w-full rounded-2xl bg-indigo-600 py-4 font-bold shadow-lg disabled:opacity-50"><Camera className="mr-2 inline h-5 w-5" />Tirar foto</button>
+          <div className={canFinalize ? 'grid grid-cols-2 gap-3' : ''}>
+            <button onClick={() => fileInputRef.current?.click()} disabled={busy} className="w-full rounded-2xl bg-indigo-600 py-4 font-bold shadow-lg disabled:opacity-50"><Camera className="mr-2 inline h-5 w-5" />Tirar foto</button>
+            {canFinalize && (
+              <button onClick={() => void handleFinalize()} disabled={busy} className="w-full rounded-2xl bg-green-600 px-2 py-3 text-sm font-bold shadow-lg disabled:opacity-50">
+                {busy ? <Loader2 className="mr-1 inline h-5 w-5 animate-spin" /> : <Check className="mr-1 inline h-5 w-5" />}
+                Finalizar com {confirmedFrameCount}
+              </button>
+            )}
+            {!canFinalize && (
+              <p className="mt-2 text-center text-[11px] text-gray-500">Mínimo para finalizar: {minimumFrameCount} fotos em sequência.</p>
+            )}
+          </div>
         )}
       </footer>
     </div>

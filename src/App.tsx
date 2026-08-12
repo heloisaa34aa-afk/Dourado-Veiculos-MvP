@@ -19,6 +19,7 @@ import CarDetails from './components/CarDetails';
 import AdminPanel from './components/AdminPanel';
 import ClientArea from './components/ClientArea';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PublicPromotion } from './components/PublicPromotion';
 import { Suspense, lazy } from 'react';
 
 const Vehicle360MobileCapture = lazy(() => import('./pages/Vehicle360MobileCapture'));
@@ -31,6 +32,7 @@ import { useLeads } from './hooks/useLeads';
 import { useCategories } from './hooks/useCategories';
 import { vehicleService } from './services/vehicle.service';
 import { authService } from './services/auth.service';
+import { usePublicBanners } from './hooks/usePublicBanners';
 
 export default function App() {
   // Navigation states
@@ -55,6 +57,10 @@ export default function App() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const publicBanners = usePublicBanners();
+  const showPromotions = !location.pathname.startsWith('/admin')
+    && !location.pathname.startsWith('/cliente')
+    && !location.pathname.startsWith('/captura-360');
   const isMobileCaptureRoute = /^\/captura-360(?:\/|$)/.test(location.pathname);
   
   const handleLogin = (profile: UserProfile) => {
@@ -333,12 +339,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {showPromotions && <PublicPromotion banners={publicBanners} placement="top_bar" />}
       {!isMobileCaptureRoute && (
         <Header 
           userProfile={userProfile}
           onLogout={handleLogout}
         />
       )}
+      {showPromotions && <PublicPromotion banners={publicBanners} placement="popup" />}
       <div className="flex-1 flex flex-col">
         <Routes>
           <Route path="/" element={
@@ -444,6 +452,10 @@ export default function App() {
                   )}
                 </div>
               </section>
+
+              <div className="px-4 sm:px-6 lg:px-8">
+                <PublicPromotion banners={publicBanners} placement="home_inline" />
+              </div>
 
               <section id="estoque-list" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24 space-y-10">
                 <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-100 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-6 items-end relative -mt-24 z-20">

@@ -97,4 +97,21 @@ describe('Vehicle360MobileCapture', () => {
     await screen.findByText('Foto 1 de 24');
     await waitFor(() => expect(captureService.prepareUpload).toHaveBeenCalledWith('token-test', 0));
   });
+
+  it('allows an interior capture to finish at the safe minimum before its target', async () => {
+    captureService.getSession.mockResolvedValue({
+      session: { id: 's', view_type: 'interior', target_frame_count: 12, status: 'active' },
+      frames: Array.from({ length: 8 }, (_, slot) => ({
+        slot_number: slot,
+        status: 'confirmed',
+        image_url: `${slot}.jpg`,
+      })),
+    });
+    captureService.finalizeSession.mockResolvedValue({ success: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderCapture();
+    const button = await screen.findByRole('button', { name: /Finalizar com 8/ });
+    fireEvent.click(button);
+    await waitFor(() => expect(captureService.finalizeSession).toHaveBeenCalledWith('token-test'));
+  });
 });
