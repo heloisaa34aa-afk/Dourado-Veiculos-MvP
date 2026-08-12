@@ -1,0 +1,4 @@
+project_id = "nzvwlyxbbnsillmylwtj"
+
+[functions.vehicle-360-capture]
+verify_jwt = false

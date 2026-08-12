@@ -52,6 +52,9 @@ export default function App() {
   }, []);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const isMobileCaptureRoute = location.pathname.startsWith('/captura-360');
+  
   const handleLogin = (profile: UserProfile) => {
     setUserProfile(profile);
     if (profile.role === 'admin') {
@@ -326,10 +329,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <Header 
-        userProfile={userProfile}
-        onLogout={handleLogout}
-      />
+      {!isMobileCaptureRoute && (
+        <Header 
+          userProfile={userProfile}
+          onLogout={handleLogout}
+        />
+      )}
       <div className="flex-1 flex flex-col">
         <Routes>
           <Route path="/" element={
@@ -774,7 +779,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
-      <Footer onAdminClick={() => navigate('/admin')} />
+      {!isMobileCaptureRoute && <Footer onAdminClick={() => navigate('/admin')} />}
     </div>
   );
 }

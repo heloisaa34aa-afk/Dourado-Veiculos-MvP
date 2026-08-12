@@ -14,6 +14,13 @@ async function sha256(message: string) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+function respond(body: any, status = 200) {
+  return new Response(JSON.stringify(body), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    status,
+  });
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -34,67 +41,66 @@ serve(async (req) => {
 
     const { action, ...params } = await req.json();
 
-    if (action === 'createSession') {
-      // Validate Admin
+    if (action === 'createSession' || action === 'cancelSession') {
       const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-      if (userError || !user) throw new Error('Unauthorized');
+      if (userError || !user) return respond({ error: 'Unauthorized' }, 401);
       
       const { data: adminData } = await supabaseAdmin.from('admins').select('id').eq('id', user.id).single();
-      if (!adminData) throw new Error('Admin only');
+      if (!adminData) return respond({ error: 'Admin only' }, 403);
 
-      const { projectId, vehicleId, viewType, targetFrameCount, captureMode, expiresInHours } = params;
-
-      // Generate secure token
-      const array = new Uint8Array(32);
-      crypto.getRandomValues(array);
-      const token = btoa(String.fromCharCode(...array)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      const tokenHash = await sha256(token);
-
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + expiresInHours);
-
-      const { data: session, error } = await supabaseAdmin.from('vehicle_360_capture_sessions').insert({
-        project_id: projectId,
-        vehicle_id: vehicleId,
-        view_type: viewType,
-        token_hash: tokenHash,
-        target_frame_count: targetFrameCount,
-        capture_mode: captureMode,
-        expires_at: expiresAt.toISOString(),
-        status: 'active',
-        created_by: user.id
-      }).select().single();
-
-      if (error) throw error;
-
-      return new Response(JSON.stringify({ sessionId: session.id, token }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (action === 'cancelSession') {
-      const { data: { user } } = await supabaseClient.auth.getUser();
-      if (!user) throw new Error('Unauthorized');
-      
-      const { data: adminData } = await supabaseAdmin.from('admins').select('id').eq('id', user.id).single();
-      if (!adminData) throw new Error('Admin only');
-
-      const { sessionId } = params;
-      const { data, error } = await supabaseAdmin.from('vehicle_360_capture_sessions')
-        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-        .eq('id', sessionId)
-        .select().single();
+      if (action === 'createSession') {
+        const { projectId, vehicleId, viewType, targetFrameCount, captureMode, expiresInHours } = params;
         
-      if (error) throw error;
-      return new Response(JSON.stringify({ success: true, session: data }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+        // Validate matching project attributes
+        const { data: project } = await supabaseAdmin.from('vehicle_360_projects')
+          .select('vehicle_id, view_type').eq('id', projectId).single();
+          
+        if (!project || project.vehicle_id !== vehicleId || project.view_type !== viewType) {
+          return respond({ error: 'Project mismatch' }, 400);
+        }
+
+        // Generate secure token
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        const token = btoa(String.fromCharCode(...array)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const tokenHash = await sha256(token);
+
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+
+        const { data: session, error } = await supabaseAdmin.from('vehicle_360_capture_sessions').insert({
+          project_id: projectId,
+          vehicle_id: vehicleId,
+          view_type: viewType,
+          token_hash: tokenHash,
+          target_frame_count: targetFrameCount,
+          capture_mode: captureMode,
+          expires_at: expiresAt.toISOString(),
+          status: 'active',
+          created_by: user.id
+        }).select().single();
+
+        if (error) return respond({ error: error.message }, 500);
+
+        return respond({ sessionId: session.id, token });
+      }
+
+      if (action === 'cancelSession') {
+        const { sessionId } = params;
+        const { data, error } = await supabaseAdmin.from('vehicle_360_capture_sessions')
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('id', sessionId)
+          .select().single();
+          
+        if (error) return respond({ error: error.message }, 500);
+        return respond({ success: true, session: data });
+      }
     }
     
     // --- Mobile Actions (Token based) ---
     const { token } = params;
     if (!token && ['getSession', 'prepareUpload', 'confirmFrame', 'rejectFrame', 'finalizeSession'].includes(action)) {
-      throw new Error('Missing token');
+      return respond({ error: 'Missing token' }, 401);
     }
     
     let tokenHash = '';
@@ -107,15 +113,15 @@ serve(async (req) => {
         .eq('token_hash', tokenHash)
         .single();
         
-      if (error || !data) throw new Error('Invalid token');
+      if (error || !data) return respond({ error: 'Invalid token' }, 404);
       session = data;
       
-      if (session.status === 'cancelled') throw new Error('Session is cancelled');
+      if (session.status === 'cancelled') return respond({ error: 'Session is cancelled' }, 409);
       if (session.status === 'expired' || new Date(session.expires_at) < new Date()) {
          if (session.status !== 'expired') {
             await supabaseAdmin.from('vehicle_360_capture_sessions').update({ status: 'expired' }).eq('id', session.id);
          }
-         throw new Error('Session is expired');
+         return respond({ error: 'Session is expired' }, 410);
       }
     }
 
@@ -125,9 +131,9 @@ serve(async (req) => {
         .eq('session_id', session.id)
         .order('slot_number', { ascending: true });
         
-      if (framesError) throw framesError;
+      if (framesError) return respond({ error: framesError.message }, 500);
       
-      return new Response(JSON.stringify({
+      return respond({
         session: {
           id: session.id,
           project_id: session.project_id,
@@ -140,43 +146,65 @@ serve(async (req) => {
           expires_at: session.expires_at
         },
         frames
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (action === 'prepareUpload') {
-      if (session.status === 'completed') throw new Error('Session already completed');
+      if (session.status !== 'active') return respond({ error: 'Session not active' }, 409);
       
       const { slotNumber } = params;
-      if (slotNumber < 0 || slotNumber >= session.target_frame_count) {
-        throw new Error('Invalid slot number');
+      if (!Number.isInteger(slotNumber) || slotNumber < 0 || slotNumber >= session.target_frame_count) {
+        return respond({ error: 'Invalid slot number' }, 400);
       }
       
-      const fileId = crypto.randomUUID();
-      const storagePath = `360-capture/${session.id}/${slotNumber}-${fileId}.jpg`;
+      // Deterministic path
+      const storagePath = `360-capture/${session.id}/${slotNumber}-capture.jpg`;
       
       const { data, error } = await supabaseAdmin.storage
         .from('vehicles')
         .createSignedUploadUrl(storagePath);
         
-      if (error) throw error;
+      if (error) return respond({ error: error.message }, 500);
       
-      return new Response(JSON.stringify({
+      return respond({
         signedUrl: data.signedUrl,
         storagePath
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (action === 'confirmFrame') {
-       if (session.status === 'completed') throw new Error('Session already completed');
+       if (session.status !== 'active') return respond({ error: 'Session not active' }, 409);
        const { slotNumber, storagePath, fileData } = params;
        
-       const { data: publicUrlData } = supabaseAdmin.storage.from('vehicles').getPublicUrl(storagePath);
+       if (!Number.isInteger(slotNumber) || slotNumber < 0 || slotNumber >= session.target_frame_count) {
+         return respond({ error: 'Invalid slot number' }, 400);
+       }
        
-       // Upsert frame
+       const expectedPrefix = `360-capture/${session.id}/${slotNumber}-`;
+       if (!storagePath || !storagePath.startsWith(expectedPrefix) || !storagePath.endsWith('.jpg')) {
+         return respond({ error: 'Invalid storage path' }, 400);
+       }
+       
+       // Verify object exists
+       const { data: statData, error: statError } = await supabaseAdmin.storage.from('vehicles').info(storagePath);
+       if (statError || !statData) {
+         return respond({ error: 'Uploaded file not found in storage' }, 404);
+       }
+       
+       // Max size check: e.g. 5MB
+       // Not strictly rejecting by max size in this MVP but we could
+       // if (statData.size > 5 * 1024 * 1024) return respond({ error: 'File too large' }, 400);
+
+       const publicUrlData = supabaseAdmin.storage.from('vehicles').getPublicUrl(storagePath).data;
+       
+       // Check if there's a previous frame to clean up
+       const { data: existingFrame } = await supabaseAdmin.from('vehicle_360_capture_frames')
+         .select('storage_path').eq('session_id', session.id).eq('slot_number', slotNumber).single();
+
+       if (existingFrame && existingFrame.storage_path !== storagePath) {
+         await supabaseAdmin.storage.from('vehicles').remove([existingFrame.storage_path]);
+       }
+
        const { data, error } = await supabaseAdmin.from('vehicle_360_capture_frames').upsert({
          session_id: session.id,
          slot_number: slotNumber,
@@ -191,13 +219,7 @@ serve(async (req) => {
          updated_at: new Date().toISOString()
        }, { onConflict: 'session_id, slot_number' }).select().single();
        
-       if (error) throw error;
-       
-       // Clean up old frames for this slot if we are overwriting (if we had previous different paths)
-       // This is a bit complex in upsert, so we might just leave the old files to be cleaned by a cron
-       // or we could query the previous path before upsert. For MVP, we will let upsert handle DB, 
-       // but storage might have orphaned files if the path changes. We include slotNumber in path, 
-       // so they might accumulate. We won't worry about storage orphans right now.
+       if (error) return respond({ error: error.message }, 500);
        
        // Update session current step if it advances
        await supabaseAdmin.from('vehicle_360_capture_sessions').update({
@@ -205,43 +227,46 @@ serve(async (req) => {
          updated_at: new Date().toISOString()
        }).eq('id', session.id);
        
-       return new Response(JSON.stringify({ success: true, frame: data }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+       return respond({ success: true, frame: data });
+    }
+
+    if (action === 'rejectFrame') {
+      if (session.status !== 'active') return respond({ error: 'Session not active' }, 409);
+      const { slotNumber } = params;
+      
+      const { data: existingFrame } = await supabaseAdmin.from('vehicle_360_capture_frames')
+        .select('storage_path').eq('session_id', session.id).eq('slot_number', slotNumber).single();
+
+      if (existingFrame) {
+        await supabaseAdmin.storage.from('vehicles').remove([existingFrame.storage_path]);
+        await supabaseAdmin.from('vehicle_360_capture_frames').delete()
+          .eq('session_id', session.id).eq('slot_number', slotNumber);
+      }
+      return respond({ success: true });
     }
 
     if (action === 'finalizeSession') {
-      if (session.status === 'completed') throw new Error('Session already completed');
+      if (session.status !== 'active') return respond({ error: 'Session not active' }, 409);
       
-      // Mark finalizing
-      await supabaseAdmin.from('vehicle_360_capture_sessions').update({ status: 'finalizing' }).eq('id', session.id);
-      
-      // Call RPC
+      // Call RPC which handles the lock, status change, and transition
       const { data, error } = await supabaseAdmin.rpc('finalize_vehicle_360_capture', {
         p_session_id: session.id
       });
       
       if (error) {
-        // Revert status
-        await supabaseAdmin.from('vehicle_360_capture_sessions').update({ status: 'active' }).eq('id', session.id);
-        throw error;
+        return respond({ error: error.message }, 500);
       }
       
       // Delete old paths
-      if (data.old_storage_paths && data.old_storage_paths.length > 0) {
+      if (data && data.old_storage_paths && data.old_storage_paths.length > 0) {
         await supabaseAdmin.storage.from('vehicles').remove(data.old_storage_paths);
       }
       
-      return new Response(JSON.stringify({ success: true, result: data }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return respond({ success: true, result: data });
     }
 
-    throw new Error(`Unknown action: ${action}`);
+    return respond({ error: `Unknown action: ${action}` }, 400);
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
-    });
+    return respond({ error: error.message }, 500);
   }
 });

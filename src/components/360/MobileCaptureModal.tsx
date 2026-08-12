@@ -1,7 +1,7 @@
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { X, Copy, QrCode, ExternalLink, Loader2, Play, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { supabase } from '../../lib/supabase';
+import { vehicle360CaptureService } from '../../services/vehicle360Capture.service';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -78,32 +78,27 @@ function MobileCaptureModalContent({
     }
   }, [isOpen]);
 
+  // Poll for progress updates
   useEffect(() => {
-    let interval: any;
-    if (session && session.token) {
-      // Poll progress every 5 seconds
-      interval = setInterval(async () => {
-        try {
-          const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-          if (!endpoint) return;
-          
-          const res = await fetch(`${endpoint}/vehicle-360-capture`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'getSession', token: session.token })
+    if (!session?.token) return;
+    
+    let interval = setInterval(async () => {
+      try {
+        const data = await vehicle360CaptureService.getSession(session.token);
+        
+        if (data.session) {
+          const confirmedCount = data.frames ? data.frames.filter((f: any) => f.status === 'confirmed').length : 0;
+          setProgress({
+            confirmed: confirmedCount,
+            currentStep: data.session.current_step,
+            status: data.session.status
           });
-          if (res.ok) {
-            const data = await res.json();
-            const confirmed = data.frames ? data.frames.filter((f: any) => f.status === 'confirmed').length : 0;
-            setProgress({
-              confirmed,
-              currentStep: data.session?.current_step || 0,
-              status: data.session?.status || 'active'
-            });
-          }
-        } catch (err) {}
-      }, 5000);
-    }
+        }
+      } catch (err) {
+        console.error("Error polling session:", err);
+      }
+    }, 3000);
+    
     return () => clearInterval(interval);
   }, [session]);
 
@@ -113,67 +108,42 @@ function MobileCaptureModalContent({
     if (existingFramesCount > 0 && captureMode === 'replace') {
       if (!window.confirm('Atenção: Substituir apagará as fotos anteriores. Deseja continuar?')) return;
     }
-    
+
     try {
       setIsCreating(true);
       setError(null);
       
-      const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-      if (!endpoint) throw new Error('Edge functions URL not configured');
-
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      
-      const res = await fetch(`${endpoint}/vehicle-360-capture`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authSession?.access_token}`
-        },
-        body: JSON.stringify({
-          action: 'createSession',
-          projectId,
-          vehicleId,
-          viewType,
-          targetFrameCount,
-          captureMode,
-          expiresInHours
-        })
+      const data = await vehicle360CaptureService.createSession({
+        projectId,
+        vehicleId,
+        viewType,
+        targetFrameCount,
+        captureMode,
+        expiresInHours
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create session');
-
-      setSession(data);
+      
+      setSession({
+        sessionId: data.sessionId,
+        token: data.token
+      });
+      
     } catch (err: any) {
-      setError(err.message);
+      console.error(err);
+      setError(err.message || 'Erro ao gerar sessão de captura');
     } finally {
       setIsCreating(false);
     }
   };
 
   const handleCancelSession = async () => {
+    if (!session) return;
+    if (!window.confirm('Cancelar esta sessão invalidará o QR Code e o progresso em andamento. Continuar?')) return;
+    
     try {
-      if (!session) return;
-      
-      const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-      if (!endpoint) return;
-
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      
-      await fetch(`${endpoint}/vehicle-360-capture`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authSession?.access_token}`
-        },
-        body: JSON.stringify({
-          action: 'cancelSession',
-          sessionId: session.sessionId
-        })
-      });
-      onClose();
-    } catch (err) {
-      console.error(err);
+      await vehicle360CaptureService.cancelSession(session.sessionId);
+      setSession(null);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao cancelar sessão');
     }
   };
 
@@ -222,6 +192,7 @@ function MobileCaptureModalContent({
                       <option value={36}>36 imagens (Recomendado)</option>
                       <option value={48}>48 imagens</option>
                       <option value={72}>72 imagens</option>
+                      <option value={96}>96 imagens</option>
                     </>
                   ) : (
                     <>
@@ -229,6 +200,7 @@ function MobileCaptureModalContent({
                       <option value={12}>12 imagens (Recomendado)</option>
                       <option value={16}>16 imagens</option>
                       <option value={24}>24 imagens</option>
+                      <option value={48}>48 imagens</option>
                     </>
                   )}
                 </select>

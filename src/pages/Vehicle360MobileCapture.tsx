@@ -1,80 +1,85 @@
-import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Camera, Check, X, Loader2, UploadCloud, ChevronRight, AlertCircle, RefreshCcw } from 'lucide-react';
+import { Camera, X, Check, Loader2, AlertCircle, RefreshCcw, UploadCloud } from 'lucide-react';
 
-interface ErrorBoundaryProps {
-  children: ReactNode;
-}
+async function processImage(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        // Calculate dimensions maintaining aspect ratio (max 2560)
+        const MAX_SIZE = 2560;
+        let width = img.width;
+        let height = img.height;
 
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+        }
 
-class MobilePageErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
 
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas context not available'));
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Vehicle360MobileCapture Error:", error, errorInfo);
-  }
+        // Modern browsers automatically respect EXIF orientation when drawing to canvas
+        ctx.drawImage(img, 0, 0, width, height);
 
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex h-[100dvh] items-center justify-center bg-gray-950 p-6 flex-col text-center">
-          <AlertCircle className="text-red-500 w-16 h-16 mb-4" />
-          <h1 className="text-xl font-bold text-white mb-2">Erro Inesperado</h1>
-          <p className="text-gray-400 mb-8">{this.state.error?.message || 'Ocorreu um erro ao renderizar a captura.'}</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-gray-800 text-white rounded-xl flex items-center gap-2">
-             <RefreshCcw size={18} /> Tentar novamente
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+        // Export as JPEG with 0.88 quality, automatically strips EXIF
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to create image blob'));
+          }
+        }, 'image/jpeg', 0.88);
+      };
+      img.onerror = () => reject(new Error('Failed to load image for processing'));
+      if (e.target?.result) {
+        img.src = e.target.result as string;
+      } else {
+        reject(new Error('Failed to read file'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function Vehicle360MobileCapture() {
-  return (
-    <MobilePageErrorBoundary>
-      <Vehicle360MobileCaptureContent />
-    </MobilePageErrorBoundary>
-  );
-}
-
-function Vehicle360MobileCaptureContent() {
   const { token } = useParams<{ token: string }>();
-  const [session, setSession] = useState<any>(null);
-  const [frames, setFrames] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  const [session, setSession] = useState<any>(null);
+  const [frames, setFrames] = useState<any[]>([]);
+  
   const [currentStep, setCurrentStep] = useState(0);
-  const [capturedImage, setCapturedImage] = useState<File | null>(null);
+  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  
   const [isUploading, setIsUploading] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetchSession();
-  }, [token]);
-
   const fetchSession = async () => {
     try {
       setLoading(true);
       setError(null);
+      
       const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-      if (!endpoint) throw new Error('Servidor não configurado');
+      if (!endpoint) throw new Error('Supabase endpoint not configured');
       
       const res = await fetch(`${endpoint}/vehicle-360-capture`, {
         method: 'POST',
@@ -87,10 +92,7 @@ function Vehicle360MobileCaptureContent() {
       
       setSession(data.session);
       setFrames(data.frames || []);
-      
-      // Determine current step based on first unconfirmed slot or current_step
-      const confirmedCount = data.frames ? data.frames.filter((f: any) => f.status === 'confirmed').length : 0;
-      setCurrentStep(Math.min(confirmedCount, (data.session?.target_frame_count || 1) - 1));
+      setCurrentStep(data.session.current_step || 0);
       
     } catch (err: any) {
       setError(err.message);
@@ -99,33 +101,51 @@ function Vehicle360MobileCaptureContent() {
     }
   };
 
+  useEffect(() => {
+    if (token) fetchSession();
+  }, [token]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
   const handleCaptureClick = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setCapturedImage(file);
-      setPreviewUrl(URL.createObjectURL(file));
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      // Process image before setting preview
+      const processedBlob = await processImage(file);
+      setCapturedBlob(processedBlob);
+      
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(URL.createObjectURL(processedBlob));
+    } catch (err: any) {
+      alert('Erro ao processar imagem: ' + err.message);
     }
   };
 
   const handleRetake = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setCapturedImage(null);
     setPreviewUrl(null);
+    setCapturedBlob(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleConfirm = async () => {
-    if (!capturedImage || !session) return;
+    if (!capturedBlob || !token) return;
     
     try {
       setIsUploading(true);
-      
       const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
       
-      // 1. Get Signed URL
+      // 1. Prepare Upload
       const prepRes = await fetch(`${endpoint}/vehicle-360-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -137,18 +157,17 @@ function Vehicle360MobileCaptureContent() {
       // 2. Upload to Storage
       const uploadRes = await fetch(prepData.signedUrl, {
         method: 'PUT',
-        headers: {
-          'Content-Type': capturedImage.type
-        },
-        body: capturedImage
+        headers: { 'Content-Type': capturedBlob.type },
+        body: capturedBlob
       });
       if (!uploadRes.ok) throw new Error('Falha no upload da imagem');
       
-      // 3. Confirm Frame
+      // Extract dimensions for DB
       const img = new Image();
       img.src = previewUrl!;
       await new Promise(r => img.onload = r);
       
+      // 3. Confirm Frame
       const confRes = await fetch(`${endpoint}/vehicle-360-capture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -157,13 +176,12 @@ function Vehicle360MobileCaptureContent() {
           token, 
           slotNumber: currentStep,
           storagePath: prepData.storagePath,
-          fileData: { size: capturedImage.size, width: img.width, height: img.height }
+          fileData: { size: capturedBlob.size, width: img.width, height: img.height }
         })
       });
       const confData = await confRes.json();
       if (!confRes.ok) throw new Error(confData.error || 'Falha ao confirmar foto');
       
-      // Move to next step or refresh
       handleRetake();
       await fetchSession();
       
@@ -247,14 +265,14 @@ function Vehicle360MobileCaptureContent() {
           <div className="grid grid-cols-4 gap-2">
             {frames.map((f, i) => (
               <div key={i} className="aspect-square bg-gray-800 rounded overflow-hidden">
-                <img src={f.image_url} className="w-full h-full object-cover" />
+                <img src={f.image_url} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
               </div>
             ))}
           </div>
         </div>
         
         <div className="p-6 pb-8 bg-gray-900 border-t border-gray-800 shrink-0">
-           <button 
+           <button
              onClick={handleFinalize}
              disabled={isFinalizing}
              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-2xl flex justify-center items-center gap-2 shadow-lg disabled:opacity-50"
@@ -267,7 +285,6 @@ function Vehicle360MobileCaptureContent() {
     );
   }
 
-  // Camera angle guide calculation (very basic MVP guide)
   const angleDegrees = (currentStep / (session.target_frame_count || 1)) * 360;
 
   return (
@@ -281,7 +298,6 @@ function Vehicle360MobileCaptureContent() {
         className="hidden" 
       />
 
-      {/* Header */}
       <div className="absolute top-0 inset-x-0 z-20 p-4 pt-6 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center pointer-events-none">
         <div>
           <h2 className="font-bold shadow-black drop-shadow-md text-lg">Foto {currentStep + 1} de {session.target_frame_count}</h2>
@@ -289,18 +305,15 @@ function Vehicle360MobileCaptureContent() {
         </div>
       </div>
 
-      {/* Main View Area */}
       <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
         {previewUrl ? (
           <img src={previewUrl} className="w-full h-full object-contain" />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center">
-             {/* Simple Guide UI */}
              <div className="w-64 h-64 border-2 border-dashed border-white/30 rounded-3xl flex items-center justify-center relative">
                 <div className="absolute top-4 text-white/50 font-bold text-xl">{currentStep === 0 ? "FRENTE" : ""}</div>
                 <Camera size={48} className="text-white/20" />
                 
-                {/* Angle indicator */}
                 <div className="absolute w-full h-full animate-[spin_20s_linear_infinite]" style={{ transform: `rotate(${angleDegrees}deg)` }}>
                   <div className="w-3 h-3 bg-indigo-500 rounded-full absolute -top-1.5 left-1/2 -translate-x-1/2 shadow-[0_0_15px_rgba(99,102,241,1)]" />
                 </div>
@@ -310,19 +323,18 @@ function Vehicle360MobileCaptureContent() {
         )}
       </div>
 
-      {/* Controls */}
       <div className="p-6 pb-12 bg-gray-900 border-t border-gray-800 z-20 shrink-0">
         {previewUrl ? (
           <div className="flex gap-4">
-             <button 
-               onClick={handleRetake} 
+             <button
+               onClick={handleRetake}
                disabled={isUploading}
                className="flex-1 py-4 bg-gray-800 text-white font-bold rounded-2xl flex justify-center items-center gap-2 disabled:opacity-50"
              >
                <X size={24} /> Refazer
              </button>
-             <button 
-               onClick={handleConfirm} 
+             <button
+               onClick={handleConfirm}
                disabled={isUploading}
                className="flex-[2] py-4 bg-indigo-600 text-white font-bold rounded-2xl flex justify-center items-center gap-2 disabled:opacity-50 shadow-lg"
              >

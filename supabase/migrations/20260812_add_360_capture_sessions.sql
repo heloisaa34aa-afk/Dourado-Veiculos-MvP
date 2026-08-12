@@ -1,4 +1,4 @@
--- supabase/migrations/20260812_add_360_capture_sessions.sql
+BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -51,17 +51,15 @@ CREATE INDEX IF NOT EXISTS idx_capture_frames_session_slot ON public.vehicle_360
 ALTER TABLE public.vehicle_360_capture_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicle_360_capture_frames ENABLE ROW LEVEL SECURITY;
 
--- Admins can read sessions
+DROP POLICY IF EXISTS "Admins can view sessions" ON public.vehicle_360_capture_sessions;
 CREATE POLICY "Admins can view sessions" 
 ON public.vehicle_360_capture_sessions FOR SELECT 
 USING (auth.uid() IN (SELECT id FROM public.admins));
 
--- Admins can view frames
+DROP POLICY IF EXISTS "Admins can view frames" ON public.vehicle_360_capture_frames;
 CREATE POLICY "Admins can view frames" 
 ON public.vehicle_360_capture_frames FOR SELECT 
 USING (auth.uid() IN (SELECT id FROM public.admins));
-
--- No public insert/update/delete policies. Mobile access will be via Edge Function.
 
 -- 4. RPC for Finalizing
 CREATE OR REPLACE FUNCTION public.finalize_vehicle_360_capture(
@@ -69,14 +67,14 @@ CREATE OR REPLACE FUNCTION public.finalize_vehicle_360_capture(
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     v_session RECORD;
     v_project RECORD;
     v_frames_count INT;
     v_frame_idx INT;
-    v_max_frames INT := 250;
+    v_max_frames INT;
     v_existing_frames INT;
     v_offset INT := 0;
     v_old_paths TEXT[] := ARRAY[]::TEXT[];
@@ -92,13 +90,19 @@ BEGIN
         RAISE EXCEPTION 'Session not found';
     END IF;
 
-    IF v_session.status != 'active' AND v_session.status != 'finalizing' THEN
-        RAISE EXCEPTION 'Session is not in active or finalizing state';
+    IF v_session.status != 'active' THEN
+        RAISE EXCEPTION 'Session is not in active state';
     END IF;
 
     IF v_session.expires_at < NOW() THEN
+        UPDATE public.vehicle_360_capture_sessions SET status = 'expired', updated_at = NOW() WHERE id = p_session_id;
         RAISE EXCEPTION 'Session is expired';
     END IF;
+
+    -- Update status to finalizing during the transaction
+    UPDATE public.vehicle_360_capture_sessions
+    SET status = 'finalizing', updated_at = NOW()
+    WHERE id = p_session_id;
 
     -- 2. Lock Project
     SELECT * INTO v_project
@@ -110,6 +114,14 @@ BEGIN
         RAISE EXCEPTION 'Project not found';
     END IF;
 
+    IF v_project.vehicle_id != v_session.vehicle_id THEN
+        RAISE EXCEPTION 'Project vehicle_id does not match session vehicle_id';
+    END IF;
+
+    IF v_project.view_type != v_session.view_type THEN
+        RAISE EXCEPTION 'Project view_type does not match session view_type';
+    END IF;
+
     -- 3. Validate slots
     SELECT COUNT(*) INTO v_frames_count
     FROM public.vehicle_360_capture_frames
@@ -119,24 +131,30 @@ BEGIN
         RAISE EXCEPTION 'Incomplete frames: expected %, got %', v_session.target_frame_count, v_frames_count;
     END IF;
 
-    -- Validate sequence 0 to target_frame_count - 1
+    -- Validate sequence 0 to target_frame_count - 1 and duplicate slots
     FOR v_frame_idx IN 0..(v_session.target_frame_count - 1) LOOP
-        IF NOT EXISTS (
-            SELECT 1 FROM public.vehicle_360_capture_frames 
-            WHERE session_id = p_session_id AND slot_number = v_frame_idx AND status = 'confirmed'
-        ) THEN
-            RAISE EXCEPTION 'Missing confirmed frame at slot %', v_frame_idx;
+        IF (SELECT COUNT(*) FROM public.vehicle_360_capture_frames 
+            WHERE session_id = p_session_id AND slot_number = v_frame_idx AND status = 'confirmed') != 1 THEN
+            RAISE EXCEPTION 'Missing or duplicate confirmed frame at slot %', v_frame_idx;
         END IF;
     END LOOP;
 
-    -- 4. Mode logic
+    -- 4. Limits and Mode logic
+    IF v_session.view_type = 'exterior' THEN
+        v_max_frames := 96;
+    ELSIF v_session.view_type = 'interior' THEN
+        v_max_frames := 48;
+    ELSE
+        RAISE EXCEPTION 'Invalid view_type %', v_session.view_type;
+    END IF;
+
     SELECT COUNT(*) INTO v_existing_frames
     FROM public.vehicle_360_frames
     WHERE project_id = v_project.id;
 
     IF v_session.capture_mode = 'replace' THEN
         IF v_session.target_frame_count > v_max_frames THEN
-            RAISE EXCEPTION 'Exceeds maximum frames limit';
+            RAISE EXCEPTION 'Exceeds maximum frames limit for view_type %', v_session.view_type;
         END IF;
 
         -- Collect old paths to delete later
@@ -168,7 +186,7 @@ BEGIN
     ELSE
         -- append
         IF (v_existing_frames + v_session.target_frame_count) > v_max_frames THEN
-            RAISE EXCEPTION 'Exceeds maximum frames limit';
+            RAISE EXCEPTION 'Exceeds maximum frames limit for view_type %', v_session.view_type;
         END IF;
         
         -- Calculate max existing frame_number to append after it
@@ -188,15 +206,17 @@ BEGIN
             frame_number,
             image_url,
             storage_path,
-            is_processed,
-            is_sharp
+            original_filename,
+            width,
+            height
         ) VALUES (
             v_project.id,
             v_offset + v_frame_record.slot_number,
             v_frame_record.image_url,
             v_frame_record.storage_path,
-            true,
-            true
+            v_frame_record.slot_number::text || '.jpg',
+            v_frame_record.width,
+            v_frame_record.height
         );
     END LOOP;
 
@@ -227,3 +247,7 @@ $$;
 REVOKE ALL ON FUNCTION public.finalize_vehicle_360_capture(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.finalize_vehicle_360_capture(UUID) FROM anon;
 REVOKE ALL ON FUNCTION public.finalize_vehicle_360_capture(UUID) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_vehicle_360_capture(UUID) TO service_role;
+
+COMMIT;
+NOTIFY pgrst, 'reload schema';
