@@ -7,6 +7,11 @@ const sql = readFileSync(
   'utf8',
 );
 
+const grantsSql = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations/20260812_fix_capture_service_role_grants.sql'),
+  'utf8',
+);
+
 describe('vehicle 360 capture migration contract', () => {
   it('is transactional and reloads the PostgREST schema', () => {
     expect(sql.trimStart().startsWith('BEGIN;')).toBe(true);
@@ -37,5 +42,21 @@ describe('vehicle 360 capture migration contract', () => {
     const expirationBlock = sql.match(/IF v_session\.expires_at < NOW\(\) THEN([\s\S]*?)END IF;/)?.[1] ?? '';
     expect(expirationBlock).not.toContain('UPDATE');
     expect(expirationBlock).toContain("RAISE EXCEPTION 'Session is expired'");
+  });
+});
+
+describe('vehicle 360 capture service role privileges', () => {
+  it('allows the Edge Function to validate real administrators', () => {
+    expect(grantsSql).toMatch(/GRANT SELECT ON TABLE public\.admins TO service_role/);
+  });
+
+  it('grants only the capture table operations used by the Edge Function', () => {
+    expect(grantsSql).toMatch(/GRANT SELECT, INSERT, UPDATE ON TABLE public\.vehicle_360_capture_sessions TO service_role/);
+    expect(grantsSql).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.vehicle_360_capture_frames TO service_role/);
+  });
+
+  it('keeps anonymous clients away from temporary capture tables', () => {
+    expect(grantsSql).toMatch(/REVOKE ALL ON TABLE public\.vehicle_360_capture_sessions FROM anon/);
+    expect(grantsSql).toMatch(/REVOKE ALL ON TABLE public\.vehicle_360_capture_frames FROM anon/);
   });
 });
