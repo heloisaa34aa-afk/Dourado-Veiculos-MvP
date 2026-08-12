@@ -18,9 +18,11 @@ import CarCard from './components/CarCard';
 import CarDetails from './components/CarDetails';
 import AdminPanel from './components/AdminPanel';
 import ClientArea from './components/ClientArea';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Suspense, lazy } from 'react';
 
 const Vehicle360MobileCapture = lazy(() => import('./pages/Vehicle360MobileCapture'));
+const demoAdminEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_ADMIN === 'true';
 
 // Supabase services and hooks
 import { useVehicles } from './hooks/useVehicles';
@@ -53,7 +55,7 @@ export default function App() {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const isMobileCaptureRoute = location.pathname.startsWith('/captura-360');
+  const isMobileCaptureRoute = /^\/captura-360(?:\/|$)/.test(location.pathname);
   
   const handleLogin = (profile: UserProfile) => {
     setUserProfile(profile);
@@ -80,7 +82,8 @@ export default function App() {
     setAdminLoading(true);
 
     // Dynamic bypass for local test / preview envs using demo credentials
-    const isDemoBypass = adminEmail.toLowerCase() === 'admin@douradoveiculos.com.br' && 
+    const isDemoBypass = demoAdminEnabled
+      && adminEmail.toLowerCase() === 'admin@douradoveiculos.com.br' &&
       (adminPassword === 'admin' || adminPassword === 'admin123' || adminPassword === 'dourado123' || adminPassword === '12345678');
 
     if (isDemoBypass) {
@@ -115,6 +118,7 @@ export default function App() {
   };
 
   const handleDemoAdminAccess = () => {
+    if (!demoAdminEnabled) return;
     setAdminEmail('admin@douradoveiculos.com.br');
     setAdminPassword('dourado123');
     setAdminLoading(true);
@@ -745,15 +749,17 @@ export default function App() {
                       {adminLoading ? 'Autenticando...' : 'Entrar no Sistema'}
                     </button>
                   </form>
-                  <button
-                    type="button"
-                    onClick={handleDemoAdminAccess}
-                    disabled={adminLoading}
-                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-white font-bold text-sm rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 mt-4"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Entrar como Administrador de Testes</span>
-                  </button>
+                  {demoAdminEnabled && (
+                    <button
+                      type="button"
+                      onClick={handleDemoAdminAccess}
+                      disabled={adminLoading}
+                      className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-white font-bold text-sm rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 mt-4"
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <span>Entrar como Administrador de Testes</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -771,9 +777,11 @@ export default function App() {
           } />
 
           <Route path="/captura-360/:token" element={
-            <Suspense fallback={<div className="flex h-[100dvh] items-center justify-center bg-gray-950 text-white">Carregando captura 360...</div>}>
-              <Vehicle360MobileCapture />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<div className="flex h-[100dvh] items-center justify-center bg-gray-950 text-white">Carregando captura 360...</div>}>
+                <Vehicle360MobileCapture />
+              </Suspense>
+            </ErrorBoundary>
           } />
 
           <Route path="*" element={<Navigate to="/" replace />} />

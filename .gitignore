@@ -2,6 +2,9 @@ node_modules/
 build/
 dist/
 coverage/
+.npm-cache/
+.pnpm-store/
+.tooling/
 .DS_Store
 *.log
 .env*

@@ -1,356 +1,276 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Camera, X, Check, Loader2, AlertCircle, RefreshCcw, UploadCloud } from 'lucide-react';
+import { AlertCircle, Camera, Check, Loader2, RefreshCcw, RotateCcw, Trash2, UploadCloud, X } from 'lucide-react';
+import { vehicle360CaptureService } from '../services/vehicle360Capture.service';
+import type { CaptureFrameDto, CaptureSessionDto } from '../services/vehicle360Capture.service';
+import {
+  findFirstMissingSlot,
+  getCaptureInstruction,
+  processVehicleCaptureImage,
+} from '../utils/vehicle360Capture';
 
-async function processImage(file: File): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        // Calculate dimensions maintaining aspect ratio (max 2560)
-        const MAX_SIZE = 2560;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_SIZE) {
-            height *= MAX_SIZE / width;
-            width = MAX_SIZE;
-          }
-        } else {
-          if (height > MAX_SIZE) {
-            width *= MAX_SIZE / height;
-            height = MAX_SIZE;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return reject(new Error('Canvas context not available'));
-
-        // Modern browsers automatically respect EXIF orientation when drawing to canvas
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Export as JPEG with 0.88 quality, automatically strips EXIF
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error('Failed to create image blob'));
-          }
-        }, 'image/jpeg', 0.88);
-      };
-      img.onerror = () => reject(new Error('Failed to load image for processing'));
-      if (e.target?.result) {
-        img.src = e.target.result as string;
-      } else {
-        reject(new Error('Failed to read file'));
-      }
-    };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
+interface ProcessedCapture {
+  blob: Blob;
+  width: number;
+  height: number;
 }
 
 export default function Vehicle360MobileCapture() {
   const { token } = useParams<{ token: string }>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [session, setSession] = useState<any>(null);
-  const [frames, setFrames] = useState<any[]>([]);
-  
+  const [session, setSession] = useState<CaptureSessionDto | null>(null);
+  const [frames, setFrames] = useState<CaptureFrameDto[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
-  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [capture, setCapture] = useState<ProcessedCapture | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  
-  const [isUploading, setIsUploading] = useState(false);
-  const [isFinalizing, setIsFinalizing] = useState(false);
-  
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchSession = async () => {
+  const clearPreview = useCallback(() => {
+    setPreviewUrl(previous => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+    setCapture(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  const loadSession = useCallback(async () => {
+    if (!token) {
+      setError('O link de captura não possui um token válido.');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      
-      const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-      if (!endpoint) throw new Error('Supabase endpoint not configured');
-      
-      const res = await fetch(`${endpoint}/vehicle-360-capture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'getSession', token })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao carregar sessão');
-      
+      const data = await vehicle360CaptureService.getSession(token);
+      const loadedFrames = data.frames ?? [];
       setSession(data.session);
-      setFrames(data.frames || []);
-      setCurrentStep(data.session.current_step || 0);
-      
-    } catch (err: any) {
-      setError(err.message);
+      setFrames(loadedFrames);
+      const firstMissing = findFirstMissingSlot(loadedFrames, data.session.target_frame_count);
+      setCurrentStep(Math.min(firstMissing, Math.max(data.session.target_frame_count - 1, 0)));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Não foi possível carregar a sessão.');
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    if (token) fetchSession();
   }, [token]);
 
   useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
+    void loadSession();
+  }, [loadSession]);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
-  const handleCaptureClick = () => {
-    fileInputRef.current?.click();
-  };
+  const confirmedBySlot = useMemo(
+    () => new Map(frames.filter(frame => frame.status === 'confirmed').map(frame => [frame.slot_number, frame])),
+    [frames],
+  );
+  const firstMissing = session ? findFirstMissingSlot(frames, session.target_frame_count) : 0;
+  const isComplete = Boolean(session && firstMissing === session.target_frame_count);
+  const instruction = session
+    ? getCaptureInstruction(session.view_type, currentStep, session.target_frame_count)
+    : null;
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-    
     try {
-      // Process image before setting preview
-      const processedBlob = await processImage(file);
-      setCapturedBlob(processedBlob);
-      
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(URL.createObjectURL(processedBlob));
-    } catch (err: any) {
-      alert('Erro ao processar imagem: ' + err.message);
+      setBusy(true);
+      setError(null);
+      const processed = await processVehicleCaptureImage(file);
+      clearPreview();
+      setCapture(processed);
+      setPreviewUrl(URL.createObjectURL(processed.blob));
+    } catch (caught) {
+      clearPreview();
+      setError(caught instanceof Error ? caught.message : 'Não foi possível processar a foto.');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleRetake = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-    setCapturedBlob(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const handleConfirm = async () => {
+    if (!capture || !token || !session) return;
+    try {
+      setBusy(true);
+      setError(null);
+      const prepared = await vehicle360CaptureService.prepareUpload(token, currentStep);
+      await vehicle360CaptureService.uploadSignedFrame(prepared.storagePath, prepared.uploadToken, capture.blob);
+      await vehicle360CaptureService.confirmFrame(token, currentStep, prepared.storagePath, {
+        size: capture.blob.size,
+        width: capture.width,
+        height: capture.height,
+      });
+      clearPreview();
+      await loadSession();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Não foi possível enviar a foto.');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleConfirm = async () => {
-    if (!capturedBlob || !token) return;
-    
+  const handleDeleteFrame = async (slotNumber: number) => {
+    if (!token || !window.confirm(`Excluir a foto ${slotNumber + 1}?`)) return;
     try {
-      setIsUploading(true);
-      const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-      
-      // 1. Prepare Upload
-      const prepRes = await fetch(`${endpoint}/vehicle-360-capture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'prepareUpload', token, slotNumber: currentStep })
-      });
-      const prepData = await prepRes.json();
-      if (!prepRes.ok) throw new Error(prepData.error || 'Falha ao preparar upload');
-      
-      // 2. Upload to Storage
-      const uploadRes = await fetch(prepData.signedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': capturedBlob.type },
-        body: capturedBlob
-      });
-      if (!uploadRes.ok) throw new Error('Falha no upload da imagem');
-      
-      // Extract dimensions for DB
-      const img = new Image();
-      img.src = previewUrl!;
-      await new Promise(r => img.onload = r);
-      
-      // 3. Confirm Frame
-      const confRes = await fetch(`${endpoint}/vehicle-360-capture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          action: 'confirmFrame', 
-          token, 
-          slotNumber: currentStep,
-          storagePath: prepData.storagePath,
-          fileData: { size: capturedBlob.size, width: img.width, height: img.height }
-        })
-      });
-      const confData = await confRes.json();
-      if (!confRes.ok) throw new Error(confData.error || 'Falha ao confirmar foto');
-      
-      handleRetake();
-      await fetchSession();
-      
-    } catch (err: any) {
-      alert(err.message);
+      setBusy(true);
+      setError(null);
+      await vehicle360CaptureService.rejectFrame(token, slotNumber);
+      clearPreview();
+      await loadSession();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Não foi possível excluir a foto.');
     } finally {
-      setIsUploading(false);
+      setBusy(false);
     }
   };
 
   const handleFinalize = async () => {
+    if (!token || !isComplete) return;
     try {
-      setIsFinalizing(true);
-      const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
-      const res = await fetch(`${endpoint}/vehicle-360-capture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'finalizeSession', token })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao finalizar');
-      
-      await fetchSession();
-    } catch (err: any) {
-      alert(err.message);
+      setBusy(true);
+      setError(null);
+      await vehicle360CaptureService.finalizeSession(token);
+      await loadSession();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Não foi possível finalizar a captura.');
     } finally {
-      setIsFinalizing(false);
+      setBusy(false);
     }
   };
 
   if (loading) {
+    return <FullScreenMessage icon={<Loader2 className="h-12 w-12 animate-spin text-indigo-500" />} title="Carregando captura 360..." />;
+  }
+
+  if (error && !session) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-950 flex-col">
-        <Loader2 className="animate-spin text-indigo-500 w-12 h-12 mb-4" />
-        <span className="text-white font-medium">Carregando Sessão...</span>
-      </div>
+      <FullScreenMessage
+        icon={<AlertCircle className="h-14 w-14 text-red-500" />}
+        title="Não foi possível abrir a sessão"
+        description={error}
+        action={<button onClick={() => void loadSession()} className="rounded-xl bg-gray-800 px-6 py-3 font-semibold"><RefreshCcw className="mr-2 inline h-4 w-4" />Tentar novamente</button>}
+      />
     );
   }
 
-  if (error || !session) {
-    return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-950 p-6 flex-col text-center">
-        <AlertCircle className="text-red-500 w-16 h-16 mb-4" />
-        <h1 className="text-xl font-bold text-white mb-2">Erro de Sessão</h1>
-        <p className="text-gray-400 mb-8">{error || 'Sessão inválida ou expirada.'}</p>
-        <button onClick={fetchSession} className="px-6 py-3 bg-gray-800 text-white rounded-xl flex items-center gap-2">
-           <RefreshCcw size={18} /> Tentar novamente
-        </button>
-      </div>
-    );
+  if (!session) return null;
+
+  if (session.status === 'completed') {
+    return <FullScreenMessage icon={<Check className="h-14 w-14 text-green-500" />} title="Captura finalizada" description="As imagens já foram enviadas ao projeto 360. Você pode fechar esta página." />;
   }
 
-  const confirmedFrames = frames.filter(f => f.status === 'confirmed').length;
-  const isComplete = confirmedFrames >= session.target_frame_count;
-
-  if (session.status === 'completed' || session.status === 'finalizing') {
-    return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-950 p-6 flex-col text-center">
-        <div className="w-20 h-20 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center mb-6 border border-green-500/30">
-          <Check size={40} />
-        </div>
-        <h1 className="text-2xl font-bold text-white mb-2">Captura Finalizada</h1>
-        <p className="text-gray-400">As imagens já estão disponíveis no sistema.</p>
-        <p className="text-gray-500 text-sm mt-8">Você pode fechar esta página.</p>
-      </div>
-    );
+  if (session.status === 'finalizing') {
+    return <FullScreenMessage icon={<Loader2 className="h-12 w-12 animate-spin text-indigo-500" />} title="Finalizando a captura" description="Aguarde enquanto organizamos as imagens." />;
   }
 
   if (isComplete && !previewUrl) {
     return (
-      <div className="flex h-[100dvh] flex-col bg-gray-950 text-white">
-        <div className="p-6 pt-12 text-center">
-          <div className="w-16 h-16 bg-blue-500 text-white rounded-full flex items-center justify-center mx-auto mb-4">
-            <UploadCloud size={32} />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Todas as fotos capturadas!</h1>
-          <p className="text-gray-400 mb-8">Envie as fotos para processamento.</p>
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-gray-950 text-white">
+        <div className="shrink-0 px-5 pb-4 pt-8 text-center">
+          <UploadCloud className="mx-auto mb-3 h-12 w-12 text-indigo-400" />
+          <h1 className="text-2xl font-bold">Revise antes de finalizar</h1>
+          <p className="mt-1 text-sm text-gray-400">Toque em uma foto para refazê-la ou excluí-la.</p>
         </div>
-        
-        <div className="flex-1 overflow-y-auto px-4">
-          <div className="grid grid-cols-4 gap-2">
-            {frames.map((f, i) => (
-              <div key={i} className="aspect-square bg-gray-800 rounded overflow-hidden">
-                <img src={f.image_url} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-              </div>
-            ))}
-          </div>
+        {error && <InlineError message={error} />}
+        <div className="grid flex-1 grid-cols-3 gap-2 overflow-y-auto px-4 pb-4 sm:grid-cols-4">
+          {Array.from({ length: session.target_frame_count }, (_, slot) => {
+            const frame = confirmedBySlot.get(slot);
+            return (
+              <button key={slot} onClick={() => setCurrentStep(slot)} className="group relative aspect-square overflow-hidden rounded-xl border border-gray-800 bg-gray-900">
+                {frame && <img src={frame.image_url} alt={`Foto ${slot + 1}`} className="h-full w-full object-cover" />}
+                <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs">{slot + 1}</span>
+                <span className="absolute inset-x-1 bottom-1 rounded bg-black/75 py-1 text-xs opacity-0 transition group-hover:opacity-100">Refazer</span>
+              </button>
+            );
+          })}
         </div>
-        
-        <div className="p-6 pb-8 bg-gray-900 border-t border-gray-800 shrink-0">
-           <button
-             onClick={handleFinalize}
-             disabled={isFinalizing}
-             className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-2xl flex justify-center items-center gap-2 shadow-lg disabled:opacity-50"
-           >
-             {isFinalizing ? <Loader2 size={24} className="animate-spin" /> : <Check size={24} />}
-             Finalizar e Processar
-           </button>
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-gray-800 bg-gray-900 p-4 pb-7">
+          <button onClick={() => void handleDeleteFrame(currentStep)} disabled={busy} className="rounded-2xl bg-gray-800 py-4 font-bold disabled:opacity-50"><Trash2 className="mr-2 inline h-5 w-5" />Excluir foto {currentStep + 1}</button>
+          <button onClick={() => fileInputRef.current?.click()} disabled={busy} className="rounded-2xl bg-indigo-600 py-4 font-bold disabled:opacity-50"><RotateCcw className="mr-2 inline h-5 w-5" />Refazer foto</button>
+          <button onClick={() => void handleFinalize()} disabled={busy} className="col-span-2 rounded-2xl bg-green-600 py-4 font-bold disabled:opacity-50">{busy ? <Loader2 className="mr-2 inline h-5 w-5 animate-spin" /> : <Check className="mr-2 inline h-5 w-5" />}Finalizar e enviar ao projeto</button>
         </div>
+        <CaptureInput inputRef={fileInputRef} onChange={handleFileChange} />
       </div>
     );
   }
 
-  const angleDegrees = (currentStep / (session.target_frame_count || 1)) * 360;
-
   return (
-    <div className="flex h-[100dvh] flex-col bg-gray-950 text-white relative">
-      <input 
-        type="file" 
-        accept="image/*" 
-        capture="environment" 
-        ref={fileInputRef} 
-        onChange={handleFileChange} 
-        className="hidden" 
-      />
-
-      <div className="absolute top-0 inset-x-0 z-20 p-4 pt-6 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center pointer-events-none">
-        <div>
-          <h2 className="font-bold shadow-black drop-shadow-md text-lg">Foto {currentStep + 1} de {session.target_frame_count}</h2>
-          <p className="text-xs text-gray-300 font-medium drop-shadow-md">Posição: {Math.round(angleDegrees)}°</p>
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-gray-950 text-white">
+      <CaptureInput inputRef={fileInputRef} onChange={handleFileChange} />
+      <header className="shrink-0 border-b border-gray-800 bg-gray-900 px-4 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-400">Foto {currentStep + 1} de {session.target_frame_count}</p>
+            <h1 className="text-lg font-bold">{instruction?.title}</h1>
+            <p className="mt-1 text-xs text-gray-400">{instruction?.description}</p>
+          </div>
+          {typeof instruction?.angleDegrees === 'number' && <span className="rounded-full bg-indigo-500/15 px-3 py-1 text-sm font-bold text-indigo-300">{instruction.angleDegrees}°</span>}
         </div>
-      </div>
+      </header>
 
-      <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
+      {error && <InlineError message={error} />}
+
+      <main className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
         {previewUrl ? (
-          <img src={previewUrl} className="w-full h-full object-contain" />
+          <img src={previewUrl} alt="Pré-visualização" className="h-full w-full object-contain" />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center">
-             <div className="w-64 h-64 border-2 border-dashed border-white/30 rounded-3xl flex items-center justify-center relative">
-                <div className="absolute top-4 text-white/50 font-bold text-xl">{currentStep === 0 ? "FRENTE" : ""}</div>
-                <Camera size={48} className="text-white/20" />
-                
-                <div className="absolute w-full h-full animate-[spin_20s_linear_infinite]" style={{ transform: `rotate(${angleDegrees}deg)` }}>
-                  <div className="w-3 h-3 bg-indigo-500 rounded-full absolute -top-1.5 left-1/2 -translate-x-1/2 shadow-[0_0_15px_rgba(99,102,241,1)]" />
-                </div>
-             </div>
-             <p className="mt-8 text-gray-400 font-medium text-center px-8">Mova-se ligeiramente ao redor do veículo para capturar este ângulo.</p>
+          <div className="px-8 text-center">
+            <div className="mx-auto flex h-56 w-56 items-center justify-center rounded-3xl border-2 border-dashed border-white/25">
+              {busy ? <Loader2 className="h-14 w-14 animate-spin text-indigo-400" /> : <Camera className="h-14 w-14 text-white/30" />}
+            </div>
+            <p className="mt-6 text-sm text-gray-400">Use o guia acima e mantenha o celular na mesma altura.</p>
           </div>
         )}
+      </main>
+
+      <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-gray-800 bg-gray-900 px-3 py-2">
+        {Array.from({ length: session.target_frame_count }, (_, slot) => {
+          const frame = confirmedBySlot.get(slot);
+          return (
+            <button key={slot} onClick={() => { clearPreview(); setCurrentStep(slot); }} className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 ${slot === currentStep ? 'border-indigo-500' : 'border-gray-700'}`}>
+              {frame ? <img src={frame.image_url} alt={`Foto ${slot + 1}`} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center bg-gray-800 text-xs text-gray-400">{slot + 1}</span>}
+              {frame && <Check className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-green-500 p-0.5" />}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="p-6 pb-12 bg-gray-900 border-t border-gray-800 z-20 shrink-0">
+      <footer className="shrink-0 border-t border-gray-800 bg-gray-900 p-4 pb-7">
         {previewUrl ? (
-          <div className="flex gap-4">
-             <button
-               onClick={handleRetake}
-               disabled={isUploading}
-               className="flex-1 py-4 bg-gray-800 text-white font-bold rounded-2xl flex justify-center items-center gap-2 disabled:opacity-50"
-             >
-               <X size={24} /> Refazer
-             </button>
-             <button
-               onClick={handleConfirm}
-               disabled={isUploading}
-               className="flex-[2] py-4 bg-indigo-600 text-white font-bold rounded-2xl flex justify-center items-center gap-2 disabled:opacity-50 shadow-lg"
-             >
-               {isUploading ? <Loader2 size={24} className="animate-spin" /> : <Check size={24} />}
-               {isUploading ? 'Enviando...' : 'Confirmar Foto'}
-             </button>
+          <div className="grid grid-cols-3 gap-3">
+            <button onClick={clearPreview} disabled={busy} className="rounded-2xl bg-gray-800 py-4 font-bold disabled:opacity-50"><X className="mr-1 inline h-5 w-5" />Cancelar</button>
+            <button onClick={() => fileInputRef.current?.click()} disabled={busy} className="rounded-2xl bg-gray-800 py-4 font-bold disabled:opacity-50"><RotateCcw className="mr-1 inline h-5 w-5" />Refazer</button>
+            <button onClick={() => void handleConfirm()} disabled={busy} className="rounded-2xl bg-indigo-600 py-4 font-bold disabled:opacity-50">{busy ? <Loader2 className="inline h-5 w-5 animate-spin" /> : <><Check className="mr-1 inline h-5 w-5" />Confirmar</>}</button>
           </div>
         ) : (
-          <button 
-            onClick={handleCaptureClick} 
-            className="w-full py-5 bg-indigo-600 text-white font-bold rounded-2xl flex justify-center items-center gap-2 shadow-lg shadow-indigo-900/50"
-          >
-            <Camera size={24} /> Tirar Foto
-          </button>
+          <button onClick={() => fileInputRef.current?.click()} disabled={busy} className="w-full rounded-2xl bg-indigo-600 py-4 font-bold shadow-lg disabled:opacity-50"><Camera className="mr-2 inline h-5 w-5" />Tirar foto</button>
         )}
-      </div>
+      </footer>
+    </div>
+  );
+}
+
+function CaptureInput({ inputRef, onChange }: { inputRef: React.RefObject<HTMLInputElement | null>; onChange: (event: React.ChangeEvent<HTMLInputElement>) => void }) {
+  return <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={onChange} className="hidden" />;
+}
+
+function InlineError({ message }: { message: string }) {
+  return <div role="alert" className="shrink-0 border-y border-red-900/50 bg-red-950/70 px-4 py-2 text-center text-sm text-red-200">{message}</div>;
+}
+
+function FullScreenMessage({ icon, title, description, action }: { icon: React.ReactNode; title: string; description?: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex h-[100dvh] flex-col items-center justify-center bg-gray-950 p-6 text-center text-white">
+      <div className="mb-5">{icon}</div>
+      <h1 className="text-2xl font-bold">{title}</h1>
+      {description && <p className="mt-2 max-w-sm text-gray-400">{description}</p>}
+      {action && <div className="mt-7">{action}</div>}
     </div>
   );
 }

@@ -23,6 +23,12 @@ vi.mock('./services/auth.service', () => ({
   }
 }));
 
+vi.mock('./services/vehicle360Capture.service', () => ({
+  vehicle360CaptureService: {
+    getSession: vi.fn().mockRejectedValue(new Error('Token inválido.')),
+  },
+}));
+
 describe('CarRouting', () => {
   afterEach(() => {
     cleanup();
@@ -119,5 +125,17 @@ describe('CarRouting', () => {
       expect(screen.getByText('Erro ao carregar')).toBeInTheDocument();
       expect(screen.getByText('Network error')).toBeInTheDocument();
     });
+  });
+
+  it('9. rota de captura mobile não renderiza Header nem Footer globais', async () => {
+    render(
+      <MemoryRouter initialEntries={['/captura-360/token-invalido']}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Não foi possível abrir a sessão')).toBeInTheDocument();
+    expect(screen.queryByText('Seminovos & Premium')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Todos os direitos reservados/i)).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,0 @@
-        </Routes>
-      </div>
-      <Footer onAdminClick={() => navigate('/admin')} />
-    </div>
-  );
-}

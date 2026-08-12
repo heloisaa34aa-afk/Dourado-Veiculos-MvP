@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS public.vehicle_360_capture_sessions (
     project_id UUID NOT NULL REFERENCES public.vehicle_360_projects(id) ON DELETE CASCADE,
     vehicle_id UUID NOT NULL REFERENCES public.vehicles(id) ON DELETE CASCADE,
     view_type TEXT NOT NULL CHECK (view_type IN ('exterior', 'interior')),
-    token_hash TEXT NOT NULL UNIQUE,
+    token_hash TEXT NOT NULL UNIQUE CHECK (token_hash ~ '^[0-9a-f]{64}$'),
     target_frame_count INTEGER NOT NULL,
     capture_mode TEXT NOT NULL CHECK (capture_mode IN ('replace', 'append')),
     status TEXT NOT NULL CHECK (status IN ('active', 'finalizing', 'completed', 'expired', 'cancelled')),
@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS public.vehicle_360_capture_sessions (
     
     -- Validations
     CONSTRAINT check_exterior_frames CHECK (view_type != 'exterior' OR (target_frame_count >= 24 AND target_frame_count <= 96)),
-    CONSTRAINT check_interior_frames CHECK (view_type != 'interior' OR (target_frame_count >= 8 AND target_frame_count <= 48))
+    CONSTRAINT check_interior_frames CHECK (view_type != 'interior' OR (target_frame_count >= 8 AND target_frame_count <= 48)),
+    CONSTRAINT check_capture_expiration CHECK (expires_at > created_at)
 );
 
 CREATE TABLE IF NOT EXISTS public.vehicle_360_capture_frames (
@@ -31,14 +32,15 @@ CREATE TABLE IF NOT EXISTS public.vehicle_360_capture_frames (
     storage_path TEXT NOT NULL,
     image_url TEXT NOT NULL,
     mime_type TEXT,
-    file_size INTEGER,
-    width INTEGER,
-    height INTEGER,
+    file_size INTEGER CHECK (file_size IS NULL OR (file_size > 0 AND file_size <= 5242880)),
+    width INTEGER CHECK (width IS NULL OR (width > 0 AND width <= 2560)),
+    height INTEGER CHECK (height IS NULL OR (height > 0 AND height <= 2560)),
     status TEXT NOT NULL CHECK (status IN ('uploaded', 'confirmed', 'rejected')),
     captured_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(session_id, slot_number)
+    UNIQUE(session_id, slot_number),
+    UNIQUE(storage_path)
 );
 
 -- 2. Indexes
@@ -95,7 +97,6 @@ BEGIN
     END IF;
 
     IF v_session.expires_at < NOW() THEN
-        UPDATE public.vehicle_360_capture_sessions SET status = 'expired', updated_at = NOW() WHERE id = p_session_id;
         RAISE EXCEPTION 'Session is expired';
     END IF;
 
@@ -158,7 +159,10 @@ BEGIN
         END IF;
 
         -- Collect old paths to delete later
-        SELECT COALESCE(array_agg(storage_path), ARRAY[]::TEXT[])
+        SELECT COALESCE(
+            array_agg(storage_path) FILTER (WHERE storage_path IS NOT NULL AND storage_path <> ''),
+            ARRAY[]::TEXT[]
+        )
         INTO v_old_paths
         FROM public.vehicle_360_frames
         WHERE project_id = v_project.id;
