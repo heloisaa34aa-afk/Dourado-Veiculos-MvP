@@ -1,7 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { X, Copy, QrCode, ExternalLink, Loader2, Play, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ModalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("MobileCaptureModal Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 bg-red-50 text-red-600 rounded-lg">
+          <p className="font-bold">Erro no componente de captura.</p>
+          <p className="text-sm">{this.state.error?.message}</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface MobileCaptureModalProps {
   isOpen: boolean;
@@ -12,7 +48,15 @@ interface MobileCaptureModalProps {
   existingFramesCount: number;
 }
 
-export function MobileCaptureModal({
+export function MobileCaptureModal(props: MobileCaptureModalProps) {
+  return (
+    <ModalErrorBoundary>
+      <MobileCaptureModalContent {...props} />
+    </ModalErrorBoundary>
+  );
+}
+
+function MobileCaptureModalContent({
   isOpen, onClose, projectId, vehicleId, viewType, existingFramesCount
 }: MobileCaptureModalProps) {
   const [targetFrameCount, setTargetFrameCount] = useState<number>(viewType === 'exterior' ? 36 : 12);
@@ -20,7 +64,7 @@ export function MobileCaptureModal({
   const [expiresInHours, setExpiresInHours] = useState<number>(2);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [session, setSession] = useState<{ id: string, token: string } | null>(null);
+  const [session, setSession] = useState<{ sessionId: string, token: string } | null>(null);
   
   // Realtime progress
   const [progress, setProgress] = useState<{ confirmed: number, currentStep: number, status: string }>({
@@ -53,8 +97,8 @@ export function MobileCaptureModal({
             const confirmed = data.frames ? data.frames.filter((f: any) => f.status === 'confirmed').length : 0;
             setProgress({
               confirmed,
-              currentStep: data.session.current_step,
-              status: data.session.status
+              currentStep: data.session?.current_step || 0,
+              status: data.session?.status || 'active'
             });
           }
         } catch (err) {}
@@ -74,7 +118,6 @@ export function MobileCaptureModal({
       setIsCreating(true);
       setError(null);
       
-      // Get the Supabase Edge Function URL from env or construct it if not provided
       const endpoint = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || (import.meta.env.VITE_SUPABASE_URL + '/functions/v1');
       if (!endpoint) throw new Error('Edge functions URL not configured');
 
@@ -125,7 +168,7 @@ export function MobileCaptureModal({
         },
         body: JSON.stringify({
           action: 'cancelSession',
-          sessionId: session.id
+          sessionId: session.sessionId
         })
       });
       onClose();
@@ -134,7 +177,8 @@ export function MobileCaptureModal({
     }
   };
 
-  const captureUrl = `${window.location.origin}/captura-360/${session?.token}`;
+  const captureUrl = session?.token ? `${window.location.origin}/captura-360/${session.token}` : '';
+  const safeTargetFrameCount = targetFrameCount || 1; // Prevent division by zero
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -241,7 +285,11 @@ export function MobileCaptureModal({
           ) : (
             <div className="flex flex-col items-center space-y-6">
               <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
-                <QRCodeSVG value={captureUrl} size={240} level="H" />
+                {captureUrl ? (
+                  <QRCodeSVG value={captureUrl} size={220} level="H" />
+                ) : (
+                  <div className="w-[220px] h-[220px] flex items-center justify-center text-gray-400">Aguardando a criação da sessão...</div>
+                )}
               </div>
               
               <div className="w-full flex flex-col gap-2">
@@ -264,7 +312,7 @@ export function MobileCaptureModal({
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
-                  <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${(progress.confirmed / targetFrameCount) * 100}%` }}></div>
+                  <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${(progress.confirmed / safeTargetFrameCount) * 100}%` }}></div>
                 </div>
                 <div className="flex justify-between text-xs text-gray-500">
                   <span>{progress.confirmed} de {targetFrameCount} fotos</span>

@@ -830,14 +830,16 @@ function Vehicle360Workspace({ vehicleId, car, viewType, onViewTypeChange, onBac
          </div>
       </div>
       
-      <MobileCaptureModal 
-        isOpen={showMobileModal}
-        onClose={() => setShowMobileModal(false)}
-        projectId={project.id}
-        vehicleId={vehicleId}
-        viewType={viewType}
-        existingFramesCount={totalFrames}
-      />
+      {showMobileModal && (
+        <MobileCaptureModal 
+          isOpen={showMobileModal}
+          onClose={() => setShowMobileModal(false)}
+          projectId={project.id}
+          vehicleId={vehicleId}
+          viewType={viewType}
+          existingFramesCount={totalFrames}
+        />
+      )}
     </div>
   );
 }

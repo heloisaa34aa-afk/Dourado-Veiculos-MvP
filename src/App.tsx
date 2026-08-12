@@ -18,7 +18,9 @@ import CarCard from './components/CarCard';
 import CarDetails from './components/CarDetails';
 import AdminPanel from './components/AdminPanel';
 import ClientArea from './components/ClientArea';
-import Vehicle360MobileCapture from './pages/Vehicle360MobileCapture';
+import { Suspense, lazy } from 'react';
+
+const Vehicle360MobileCapture = lazy(() => import('./pages/Vehicle360MobileCapture'));
 
 // Supabase services and hooks
 import { useVehicles } from './hooks/useVehicles';
@@ -763,7 +765,11 @@ export default function App() {
             />
           } />
 
-          <Route path="/captura-360/:token" element={<Vehicle360MobileCapture />} />
+          <Route path="/captura-360/:token" element={
+            <Suspense fallback={<div className="flex h-[100dvh] items-center justify-center bg-gray-950 text-white">Carregando captura 360...</div>}>
+              <Vehicle360MobileCapture />
+            </Suspense>
+          } />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

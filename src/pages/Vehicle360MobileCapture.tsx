@@ -1,8 +1,56 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import { Camera, Check, X, Loader2, UploadCloud, ChevronRight, AlertCircle, RefreshCcw } from 'lucide-react';
 
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class MobilePageErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Vehicle360MobileCapture Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-[100dvh] items-center justify-center bg-gray-950 p-6 flex-col text-center">
+          <AlertCircle className="text-red-500 w-16 h-16 mb-4" />
+          <h1 className="text-xl font-bold text-white mb-2">Erro Inesperado</h1>
+          <p className="text-gray-400 mb-8">{this.state.error?.message || 'Ocorreu um erro ao renderizar a captura.'}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-gray-800 text-white rounded-xl flex items-center gap-2">
+             <RefreshCcw size={18} /> Tentar novamente
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function Vehicle360MobileCapture() {
+  return (
+    <MobilePageErrorBoundary>
+      <Vehicle360MobileCaptureContent />
+    </MobilePageErrorBoundary>
+  );
+}
+
+function Vehicle360MobileCaptureContent() {
   const { token } = useParams<{ token: string }>();
   const [session, setSession] = useState<any>(null);
   const [frames, setFrames] = useState<any[]>([]);
@@ -42,7 +90,7 @@ export default function Vehicle360MobileCapture() {
       
       // Determine current step based on first unconfirmed slot or current_step
       const confirmedCount = data.frames ? data.frames.filter((f: any) => f.status === 'confirmed').length : 0;
-      setCurrentStep(Math.min(confirmedCount, data.session.target_frame_count - 1));
+      setCurrentStep(Math.min(confirmedCount, (data.session?.target_frame_count || 1) - 1));
       
     } catch (err: any) {
       setError(err.message);
@@ -220,7 +268,7 @@ export default function Vehicle360MobileCapture() {
   }
 
   // Camera angle guide calculation (very basic MVP guide)
-  const angleDegrees = (currentStep / session.target_frame_count) * 360;
+  const angleDegrees = (currentStep / (session.target_frame_count || 1)) * 360;
 
   return (
     <div className="flex h-[100dvh] flex-col bg-gray-950 text-white relative">
