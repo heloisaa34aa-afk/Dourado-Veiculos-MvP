@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertCircle, Camera, Check, Loader2, RefreshCcw, RotateCcw, Trash2, UploadCloud, X } from 'lucide-react';
+import { CapturePositionGuide } from '../components/360/CapturePositionGuide';
 import { vehicle360CaptureService } from '../services/vehicle360Capture.service';
 import type { CaptureFrameDto, CaptureSessionDto } from '../services/vehicle360Capture.service';
 import {
@@ -15,6 +16,11 @@ interface ProcessedCapture {
   height: number;
 }
 
+interface PreparedUpload {
+  storagePath: string;
+  uploadToken: string;
+}
+
 export default function Vehicle360MobileCapture() {
   const { token } = useParams<{ token: string }>();
   const [session, setSession] = useState<CaptureSessionDto | null>(null);
@@ -26,6 +32,7 @@ export default function Vehicle360MobileCapture() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const preparedUploadsRef = useRef(new Map<number, Promise<PreparedUpload>>());
 
   const clearPreview = useCallback(() => {
     setPreviewUrl(previous => {
@@ -58,9 +65,33 @@ export default function Vehicle360MobileCapture() {
     }
   }, [token]);
 
+  const getPreparedUpload = useCallback((slotNumber: number) => {
+    if (!token) return Promise.reject(new Error('Token de captura inválido.'));
+    const cached = preparedUploadsRef.current.get(slotNumber);
+    if (cached) return cached;
+
+    const request = vehicle360CaptureService.prepareUpload(token, slotNumber).catch(error => {
+      preparedUploadsRef.current.delete(slotNumber);
+      throw error;
+    });
+    preparedUploadsRef.current.set(slotNumber, request);
+    return request;
+  }, [token]);
+
   useEffect(() => {
     void loadSession();
   }, [loadSession]);
+
+  useEffect(() => {
+    preparedUploadsRef.current.clear();
+  }, [token]);
+
+  useEffect(() => {
+    if (session?.status !== 'active' || currentStep < 0 || currentStep >= session.target_frame_count) return;
+    void getPreparedUpload(currentStep).catch(() => {
+      // Confirmation requests a fresh URL if this preload fails.
+    });
+  }, [currentStep, getPreparedUpload, session]);
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -99,16 +130,28 @@ export default function Vehicle360MobileCapture() {
     try {
       setBusy(true);
       setError(null);
-      const prepared = await vehicle360CaptureService.prepareUpload(token, currentStep);
-      await vehicle360CaptureService.uploadSignedFrame(prepared.storagePath, prepared.uploadToken, capture.blob);
-      await vehicle360CaptureService.confirmFrame(token, currentStep, prepared.storagePath, {
+      let prepared = await getPreparedUpload(currentStep);
+      try {
+        await vehicle360CaptureService.uploadSignedFrame(prepared.storagePath, prepared.uploadToken, capture.blob);
+      } catch {
+        preparedUploadsRef.current.delete(currentStep);
+        prepared = await getPreparedUpload(currentStep);
+        await vehicle360CaptureService.uploadSignedFrame(prepared.storagePath, prepared.uploadToken, capture.blob);
+      }
+      const result = await vehicle360CaptureService.confirmFrame(token, currentStep, prepared.storagePath, {
         size: capture.blob.size,
         width: capture.width,
         height: capture.height,
       });
+      preparedUploadsRef.current.delete(currentStep);
+      setFrames(previous => [
+        ...previous.filter(frame => frame.slot_number !== currentStep),
+        result.frame,
+      ].sort((a, b) => a.slot_number - b.slot_number));
+      setCurrentStep(Math.min(result.currentStep, Math.max(session.target_frame_count - 1, 0)));
       clearPreview();
-      await loadSession();
     } catch (caught) {
+      preparedUploadsRef.current.delete(currentStep);
       setError(caught instanceof Error ? caught.message : 'Não foi possível enviar a foto.');
     } finally {
       setBusy(false);
@@ -120,9 +163,11 @@ export default function Vehicle360MobileCapture() {
     try {
       setBusy(true);
       setError(null);
-      await vehicle360CaptureService.rejectFrame(token, slotNumber);
+      const result = await vehicle360CaptureService.rejectFrame(token, slotNumber);
+      preparedUploadsRef.current.delete(slotNumber);
+      setFrames(previous => previous.filter(frame => frame.slot_number !== slotNumber));
+      setCurrentStep(result.currentStep);
       clearPreview();
-      await loadSession();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível excluir a foto.');
     } finally {
@@ -221,10 +266,17 @@ export default function Vehicle360MobileCapture() {
           <img src={previewUrl} alt="Pré-visualização" className="h-full w-full object-contain" />
         ) : (
           <div className="px-8 text-center">
-            <div className="mx-auto flex h-56 w-56 items-center justify-center rounded-3xl border-2 border-dashed border-white/25">
-              {busy ? <Loader2 className="h-14 w-14 animate-spin text-indigo-400" /> : <Camera className="h-14 w-14 text-white/30" />}
+            <div className="mx-auto h-[min(48dvh,360px)] w-[min(88vw,360px)] rounded-3xl border border-slate-700 bg-slate-950/80 p-3 shadow-2xl">
+              {busy ? (
+                <div className="flex h-full items-center justify-center"><Loader2 className="h-14 w-14 animate-spin text-indigo-400" /></div>
+              ) : (
+                <CapturePositionGuide
+                  viewType={session.view_type}
+                  slotNumber={currentStep}
+                  targetFrameCount={session.target_frame_count}
+                />
+              )}
             </div>
-            <p className="mt-6 text-sm text-gray-400">Use o guia acima e mantenha o celular na mesma altura.</p>
           </div>
         )}
       </main>
@@ -234,7 +286,19 @@ export default function Vehicle360MobileCapture() {
           const frame = confirmedBySlot.get(slot);
           return (
             <button key={slot} onClick={() => { clearPreview(); setCurrentStep(slot); }} className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 ${slot === currentStep ? 'border-indigo-500' : 'border-gray-700'}`}>
-              {frame ? <img src={frame.image_url} alt={`Foto ${slot + 1}`} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center bg-gray-800 text-xs text-gray-400">{slot + 1}</span>}
+              {frame ? (
+                <img src={frame.image_url} alt={`Foto ${slot + 1}`} className="h-full w-full object-cover" />
+              ) : (
+                <div className="h-full w-full bg-slate-950 p-0.5">
+                  <CapturePositionGuide
+                    viewType={session.view_type}
+                    slotNumber={slot}
+                    targetFrameCount={session.target_frame_count}
+                    compact
+                  />
+                </div>
+              )}
+              <span className="absolute left-0.5 top-0.5 rounded bg-black/75 px-1 text-[9px] font-bold">{slot + 1}</span>
               {frame && <Check className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-green-500 p-0.5" />}
             </button>
           );

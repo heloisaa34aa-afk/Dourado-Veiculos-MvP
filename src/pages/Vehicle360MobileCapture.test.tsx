@@ -29,7 +29,13 @@ function renderCapture() {
 }
 
 describe('Vehicle360MobileCapture', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    captureService.prepareUpload.mockResolvedValue({
+      storagePath: '360-capture/session/0-capture.jpg',
+      uploadToken: 'signed-token',
+    });
+  });
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -79,5 +85,16 @@ describe('Vehicle360MobileCapture', () => {
     fireEvent.click(screen.getByAltText('Foto 1'));
     fireEvent.click(screen.getByRole('button', { name: /Excluir foto 1/ }));
     await waitFor(() => expect(captureService.rejectFrame).toHaveBeenCalledWith('token-test', 0));
+    expect(captureService.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('prepares the current upload before the employee confirms the photo', async () => {
+    captureService.getSession.mockResolvedValue({
+      session: { id: 's', view_type: 'exterior', target_frame_count: 24, status: 'active' },
+      frames: [],
+    });
+    renderCapture();
+    await screen.findByText('Foto 1 de 24');
+    await waitFor(() => expect(captureService.prepareUpload).toHaveBeenCalledWith('token-test', 0));
   });
 });
