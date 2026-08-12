@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect } from 'react';
 import { Routes, Route, useNavigate, Navigate, useLocation, useParams } from 'react-router-dom';
 import { 
   SlidersHorizontal, Search, Phone, ShieldCheck, Mail, MapPin, 
@@ -21,6 +21,7 @@ import ClientArea from './components/ClientArea';
 
 // Supabase services and hooks
 import { useVehicles } from './hooks/useVehicles';
+import { useVehicle } from './hooks/useVehicle';
 import { useLeads } from './hooks/useLeads';
 import { useCategories } from './hooks/useCategories';
 import { vehicleService } from './services/vehicle.service';
@@ -310,8 +311,8 @@ export default function App() {
   };
 
   const handleSelectCarDetails = (car: Car) => {
-    vehicleService.incrementViews(car.id);
-    navigate(`/veiculo/\${car.id}`);
+    
+    navigate(`/veiculo/${encodeURIComponent(car.id)}`);
   };
 
   const resetFilters = () => {
@@ -674,7 +675,7 @@ export default function App() {
           } />
 
           <Route path="/veiculo/:vehicleId" element={
-            <CarDetailsWrapper cars={cars} onSubmitLead={handleSubmitLead} />
+            <CarDetailsWrapper onSubmitLead={handleSubmitLead} />
           } />
 
           <Route path="/admin/*" element={
@@ -769,29 +770,65 @@ export default function App() {
   );
 }
 
-function CarDetailsWrapper({ cars, onSubmitLead }: { cars: Car[], onSubmitLead: any }) {
-  const { vehicleId } = useParams();
+function CarDetailsWrapper({ onSubmitLead }: { onSubmitLead: any }) {
+  const { vehicleId } = useParams<{ vehicleId: string }>();
+  const decodedVehicleId = vehicleId ? decodeURIComponent(vehicleId).trim() : null;
   const navigate = useNavigate();
-  const car = cars.find(c => c.id === vehicleId);
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-  }, [vehicleId]);
+  const { vehicle, loading, error, refetch, incrementViews } = useVehicle(decodedVehicleId);
+  const hasIncremented = React.useRef(false);
 
-  if (!car) {
+  useLayoutEffect(() => {
+    if (vehicle?.id) {
+      window.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: 'instant'
+      });
+      if (!hasIncremented.current) {
+        incrementViews();
+        hasIncremented.current = true;
+      }
+    }
+  }, [vehicle?.id, incrementViews]);
+
+  if (loading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-        <h2 className="text-2xl font-bold text-slate-800 mb-4">Veículo não encontrado</h2>
-        <button onClick={() => navigate('/')} className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold">Voltar ao Catálogo</button>
+      <div className="flex-1 flex flex-col items-center justify-center py-32 text-center bg-slate-50">
+         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mb-4"></div>
+         <p className="text-slate-500 font-medium">Carregando detalhes do veículo...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center py-20 text-center px-4 bg-slate-50">
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">Erro ao carregar</h2>
+        <p className="text-slate-500 mb-6">{error}</p>
+        <div className="flex gap-4">
+          <button onClick={refetch} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors">Tentar novamente</button>
+          <button onClick={() => navigate('/')} className="px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl font-bold transition-colors">Voltar ao Estoque</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!vehicle) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center py-20 text-center px-4 bg-slate-50">
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">Veículo não encontrado</h2>
+        <p className="text-slate-500 mb-6">O veículo que você está procurando pode ter sido vendido ou não existe mais.</p>
+        <button onClick={() => navigate('/')} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors">Voltar ao Catálogo</button>
       </div>
     );
   }
 
   return (
-    <CarDetails
-      car={car}
-      onBack={() => navigate('/')}
-      onSubmitLead={onSubmitLead}
+    <CarDetails 
+      car={vehicle} 
+      onBack={() => navigate('/')} 
+      onSubmitLead={onSubmitLead} 
     />
   );
 }

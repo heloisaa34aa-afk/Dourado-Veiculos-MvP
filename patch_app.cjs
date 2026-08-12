@@ -1,533 +1,18 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/App.tsx', 'utf8');
 
-// Add react-router-dom import
-if (!code.includes('react-router-dom')) {
-  code = code.replace("import React, { useState, useMemo, useEffect } from 'react';", "import React, { useState, useMemo, useEffect } from 'react';\nimport { Routes, Route, useNavigate, Navigate, useLocation } from 'react-router-dom';");
-}
-
-// Remove currentView and selectedCar states
-code = code.replace("const [currentView, setView] = useState<'catalog' | 'admin' | 'client'>('catalog');\n", "");
-code = code.replace("const [selectedCar, setSelectedCar] = useState<Car | null>(null);\n", "");
-
-// Replace handleLogin
 code = code.replace(
-`  const handleLogin = (profile: UserProfile) => {
-    setUserProfile(profile);
-    if (profile.role === 'admin') {
-      setView('admin');
-    } else {
-      setView('catalog');
-    }
-  };`,
-`  const navigate = useNavigate();
-  const handleLogin = (profile: UserProfile) => {
-    setUserProfile(profile);
-    if (profile.role === 'admin') {
-      navigate('/admin');
-    } else {
-      navigate('/');
-    }
-  };`
+  "import { useVehicles } from './hooks/useVehicles';",
+  "import { useVehicles } from './hooks/useVehicles';\nimport { useVehicle } from './hooks/useVehicle';"
 );
 
-// Replace handleLogout
 code = code.replace(
-`  const handleLogout = async () => {
-    try {
-      await authService.signOut();
-      setUserProfile(null);
-      setView('catalog');
-    } catch (err) {
-      console.error('Error logging out:', err);
-    }
-  };`,
-`  const handleLogout = async () => {
-    try {
-      await authService.signOut();
-      setUserProfile(null);
-      navigate('/');
-    } catch (err) {
-      console.error('Error logging out:', err);
-    }
-  };`
+  "function CarDetailsWrapper({ cars, onSubmitLead }: { cars: Car[], onSubmitLead: any }) {",
+  "function CarDetailsWrapper({ onSubmitLead }: { onSubmitLead: any }) {"
 );
 
-// Replace admin login navigate
-code = code.replace("setUserProfile(demoProfile);\n        setView('admin');", "setUserProfile(demoProfile);\n        navigate('/admin');");
-code = code.replace("setUserProfile(profile);\n      setView('admin');", "setUserProfile(profile);\n      navigate('/admin');");
-code = code.replace("setUserProfile(demoProfile);\n      setView('admin');", "setUserProfile(demoProfile);\n      navigate('/admin');");
-
-
-// Replace handleSelectCarDetails
-code = code.replace(
-`  const handleSelectCarDetails = (car: Car) => {
-    // Increment views statistics asynchronously in background
-    vehicleService.incrementViews(car.id);
-    setSelectedCar({ ...car, views: car.views + 1 });
-  };`,
-`  const handleSelectCarDetails = (car: Car) => {
-    vehicleService.incrementViews(car.id);
-    navigate(\`/veiculo/\${car.id}\`);
-  };`
-);
-
-
-// Replace the return block
-// It's quite large. We will replace everything from "return (" to the end of the file.
-const returnIndex = code.indexOf('return (');
-const headerCode = code.substring(0, returnIndex);
-
-const jsxCode = `  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <Header 
-        userProfile={userProfile}
-        onLogout={handleLogout}
-      />
-      <div className="flex-1 flex flex-col">
-        <Routes>
-          <Route path="/" element={
-            <div className="space-y-16">
-              {/* Premium Hero promotional showcase section */}
-              <section className="relative w-full overflow-hidden bg-slate-950 text-white min-h-[480px] flex items-center justify-center">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-red-600/5 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute -bottom-10 left-0 w-80 h-80 bg-red-700/5 rounded-full blur-3xl pointer-events-none" />
-
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 relative z-10 w-full animate-fadeIn">
-                  {activeFeaturedCars.length > 0 ? (
-                    <div className="relative">
-                      {activeFeaturedCars.map((car, idx) => {
-                        const isActive = idx === activeSlideIndex;
-                        if (!isActive) return null;
-
-                        return (
-                          <motion.div
-                            key={car.id}
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -20 }}
-                            transition={{ duration: 0.5 }}
-                            className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center"
-                          >
-                            <div className="lg:col-span-6 space-y-6 text-center lg:text-left">
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-600 text-white font-bold text-xs rounded-lg uppercase tracking-wider">
-                                <Star className="w-3 h-3 fill-current" />
-                                <span>VEÍCULO EM DESTAQUE</span>
-                              </span>
-                              <h1 className="font-extrabold text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-none text-white">
-                                {car.brand} <span className="text-red-500">{car.model}</span>
-                              </h1>
-                              <p className="text-slate-300 font-bold text-base sm:text-lg">
-                                {car.version} • {car.year}
-                              </p>
-                              <p className="text-slate-400 font-medium text-sm sm:text-base max-w-xl leading-relaxed line-clamp-3">
-                                {car.description || "Aproveite esta oferta exclusiva. Agende seu test-drive e conheça de perto a qualidade incomparável deste modelo premium."}
-                              </p>
-                              
-                              <div className="flex flex-wrap justify-center lg:justify-start gap-2 pt-2 text-xs font-bold text-slate-300">
-                                <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.gearbox}</span>
-                                <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.fuel}</span>
-                                <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.km === 0 ? "Zero KM" : \`\${car.km.toLocaleString('pt-BR')} km\`}</span>
-                                <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">{car.color}</span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 pt-4">
-                                <button
-                                  onClick={() => handleSelectCarDetails(car)}
-                                  className="px-8 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center gap-2"
-                                >
-                                  <span>Ver Detalhes</span>
-                                  <ArrowRight className="w-4 h-4" />
-                                </button>
-                                <a
-                                  href="#finance-simulator"
-                                  onClick={() => setSimCarId(car.id)}
-                                  className="px-6 py-3.5 border-2 border-slate-700 hover:border-slate-500 text-slate-300 rounded-xl font-bold transition-all cursor-pointer"
-                                >
-                                  Análise de Crédito
-                                </a>
-                              </div>
-                            </div>
-
-                            <div className="lg:col-span-6">
-                              <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border border-slate-800 bg-slate-900 flex items-center justify-center group cursor-pointer" onClick={() => handleSelectCarDetails(car)}>
-                                <img
-                                  src={car.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&q=80&w=800'}
-                                  alt={\`\${car.brand} \${car.model}\`}
-                                  className="w-full h-full object-cover opacity-90 transition-transform duration-700 group-hover:scale-105"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="absolute bottom-4 right-4 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 flex items-center gap-2 border border-slate-800">
-                                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                  <span>Laudo Cautelar Aprovado</span>
-                                </div>
-                              </div>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-
-                      {activeFeaturedCars.length > 1 && (
-                        <div className="flex justify-center items-center gap-2.5 mt-8 relative z-20">
-                          {activeFeaturedCars.map((_, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setActiveSlideIndex(i)}
-                              className={\`h-2.5 rounded-full transition-all cursor-pointer \${
-                                i === activeSlideIndex ? 'w-8 bg-red-600' : 'w-2.5 bg-slate-800 hover:bg-slate-600'
-                              }\`}
-                              title={\`Ir para o slide \${i + 1}\`}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 text-slate-400 font-bold">
-                      Nenhum veículo em destaque disponível.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section id="estoque-list" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24 space-y-10">
-                <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-100 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-6 items-end relative -mt-24 z-20">
-                  <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Busca Livre</label>
-                    <div className="relative">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Ex: Chevrolet Onix Turbo, SUV, Automático..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-slate-800 text-sm focus:outline-none focus:border-red-600 focus:bg-white transition-all font-medium"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Marca</label>
-                    <select
-                      value={selectedBrand}
-                      onChange={(e) => setSelectedBrand(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-slate-700 text-sm focus:outline-none focus:border-red-600 transition-all font-medium font-bold cursor-pointer"
-                    >
-                      {availableBrands.map((b) => (
-                        <option key={b} value={b}>{b === 'Todos' ? 'Todas as Marcas' : b}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="font-extrabold text-xl text-slate-900">Categorias Populares</h3>
-                  <div className="flex gap-3 overflow-x-auto pb-2 scroll-hide">
-                    <button
-                      onClick={() => setSelectedCategory('Todos')}
-                      className={\`px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all border \${
-                        selectedCategory === 'Todos'
-                          ? 'bg-slate-900 border-slate-900 text-white shadow-md'
-                          : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300'
-                      }\`}
-                    >
-                      <span>🚗</span>
-                      <span>Ver Todos ({cars.length})</span>
-                    </button>
-
-                    {categoriesList.map((cat) => (
-                      <button
-                        key={cat.name}
-                        onClick={() => setSelectedCategory(cat.name)}
-                        className={\`px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all border \${
-                          selectedCategory === cat.name
-                            ? 'bg-red-600 border-red-600 text-white shadow-md'
-                            : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300'
-                        }\`}
-                      >
-                        <span>{cat.icon}</span>
-                        <span>{cat.name} ({cat.count})</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-6 pt-4">
-                  {carsError && (
-                    <div className="bg-red-50/90 border border-red-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-sm">
-                      <div className="flex items-start gap-4">
-                         <div className="p-3 bg-red-100 rounded-2xl text-red-600 shrink-0">
-                          <HelpCircle className="w-6 h-6" />
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="font-extrabold text-lg text-slate-900">Erro de Conexão com o Supabase</h4>
-                          <p className="text-sm text-slate-600 leading-relaxed font-medium">
-                            Não foi possível carregar os veículos do seu banco de dados Supabase. Certifique-se de ter executado o script de inicialização do banco de dados para criar as tabelas e liberar as permissões (RLS).
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="bg-slate-950 text-slate-100 p-5 rounded-2xl font-mono text-xs overflow-x-auto whitespace-pre-wrap border border-slate-800 shadow-inner">
-                        <p className="text-red-400 font-bold mb-2">// Detalhes do erro retornado pelo Supabase:</p>
-                        <p className="text-slate-300">{carsError}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-extrabold text-2xl text-slate-900">Estoque Disponível</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">Encontre veículos seminovos inspecionados com as melhores taxas.</p>
-                    </div>
-
-                    {(searchQuery || selectedCategory !== 'Todos' || selectedBrand !== 'Todos') && (
-                      <button
-                        onClick={resetFilters}
-                        className="text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1.5 cursor-pointer bg-red-50 px-3.5 py-1.5 rounded-xl transition-all"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Limpar Filtros</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {filteredCatalog.length === 0 ? (
-                    <div className="bg-white rounded-3xl p-12 text-center text-slate-400 border border-slate-100 shadow-sm space-y-3">
-                      <HelpCircle className="w-12 h-12 text-slate-300 mx-auto" />
-                      <p className="font-semibold text-slate-700 text-sm">Nenhum carro atende aos critérios.</p>
-                      <button
-                        onClick={resetFilters}
-                        className="px-5 py-2.5 bg-slate-900 text-white rounded-xl font-semibold text-xs mt-4 cursor-pointer"
-                      >
-                        Restaurar Estoque Completo
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                      {filteredCatalog.map((car) => (
-                        <div key={car.id}>
-                          <CarCard
-                            car={car}
-                            onSelect={handleSelectCarDetails}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section id="advantages-section" className="bg-slate-900 text-white py-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-                <div className="absolute bottom-0 right-0 w-80 h-80 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="max-w-7xl mx-auto text-center space-y-12 relative z-10">
-                  <div className="space-y-4 max-w-2xl mx-auto">
-                    <h2 className="font-extrabold text-3xl sm:text-4xl tracking-tight">Vantagens Dourado Veículos</h2>
-                    <p className="text-slate-400 font-medium text-sm sm:text-base">
-                      Comprar um carro conosco é ter a certeza de um processo transparente, do primeiro contato ao pós-venda.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-8 text-center">
-                    <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-800 space-y-4">
-                      <div className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center mx-auto shadow-lg"><CheckCircle className="w-7 h-7" /></div>
-                      <h4 className="font-bold text-lg">Inspecionados</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">Todos os nossos veículos passam por uma rigorosa auditoria em mais de 100 itens.</p>
-                    </div>
-                    <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-800 space-y-4">
-                      <div className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center mx-auto shadow-lg"><SlidersHorizontal className="w-7 h-7" /></div>
-                      <h4 className="font-bold text-lg">Laudo Cautelar</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">Entregamos laudo cautelar de vistoria 100% aprovado.</p>
-                    </div>
-                    <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-800 space-y-4">
-                      <div className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center mx-auto shadow-lg"><DollarSign className="w-7 h-7" /></div>
-                      <h4 className="font-bold text-lg">Financiamento</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">Parceria direta com os maiores bancos para aprovação rápida.</p>
-                    </div>
-                    <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-800 space-y-4">
-                      <div className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center mx-auto shadow-lg"><Phone className="w-7 h-7" /></div>
-                      <h4 className="font-bold text-lg">Atendimento Premium</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">Consultores prontos para tirar dúvidas via WhatsApp.</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section id="finance-simulator" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24">
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
-                  <form onSubmit={handleFinSubmit} className="lg:col-span-7 p-6 sm:p-10 space-y-6">
-                    <div>
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 font-bold text-xs rounded-lg uppercase tracking-wider mb-2.5">
-                        <Calculator className="w-3.5 h-3.5" /><span>Financiamento Dourado</span>
-                      </span>
-                      <h3 className="font-extrabold text-3xl text-slate-900 tracking-tight">Solicite uma análise de crédito</h3>
-                      <p className="text-sm text-slate-500 mt-1">Preencha o formulário abaixo e receba propostas personalizadas.</p>
-                    </div>
-                    {finSuccess && (
-                      <div className="p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-2xl text-xs font-bold flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>Solicitação enviada com sucesso!</span>
-                      </div>
-                    )}
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Carro de Interesse</label>
-                        <select
-                          value={simCarId}
-                          onChange={(e) => setSimCarId(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:border-red-600 font-bold cursor-pointer"
-                          required
-                        >
-                          <option value="" disabled>Escolha um veículo de interesse...</option>
-                          {cars.map((c) => (
-                            <option key={c.id} value={c.id}>{c.brand} {c.model} {c.version} ({c.year})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Nome Completo</label>
-                          <input type="text" required placeholder="Seu nome" value={finName} onChange={(e) => setFinName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 focus:outline-none focus:border-red-600 font-medium" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">WhatsApp / Celular</label>
-                          <input type="tel" required placeholder="(11) 99999-9999" value={finPhone} onChange={(e) => setFinPhone(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 focus:outline-none focus:border-red-600 font-medium" />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">E-mail (Opcional)</label>
-                        <input type="email" placeholder="seu.email@exemplo.com" value={finEmail} onChange={(e) => setFinEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 focus:outline-none focus:border-red-600 font-medium" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Observações ou valor de entrada pretendido (Opcional)</label>
-                        <textarea placeholder="Ex: Gostaria de dar meu carro atual como entrada..." value={finMessage} onChange={(e) => setFinMessage(e.target.value)} rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 focus:outline-none focus:border-red-600 font-medium resize-none" />
-                      </div>
-                      <button type="submit" disabled={finLoading} className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:bg-slate-300">
-                        <span>{finLoading ? 'Enviando...' : 'Enviar Solicitação'}</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </form>
-                  <div className="lg:col-span-5 bg-slate-900 text-white p-6 sm:p-10 flex flex-col justify-between relative">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/10 rounded-full blur-2xl pointer-events-none" />
-                    <div className="space-y-6 relative z-10">
-                      <span className="text-xs uppercase font-bold text-slate-400 tracking-widest block border-b border-slate-800 pb-2">Vantagens de Financiar Conosco</span>
-                      <div className="space-y-5">
-                        <div className="flex gap-3">
-                          <div className="w-6 h-6 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0"><span className="w-2 h-2 bg-red-500 rounded-full" /></div>
-                          <div><h4 className="font-bold text-sm text-white">Parceria com Grandes Bancos</h4><p className="text-xs text-slate-400 mt-1">Conexão direta com os maiores bancos.</p></div>
-                        </div>
-                        <div className="flex gap-3">
-                          <div className="w-6 h-6 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0"><span className="w-2 h-2 bg-red-500 rounded-full" /></div>
-                          <div><h4 className="font-bold text-sm text-white">Taxas Especiais</h4><p className="text-xs text-slate-400 mt-1">Planos de parcelas flexíveis.</p></div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="pt-8 border-t border-slate-800 text-xs text-slate-400 flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Seus dados pessoais estão protegidos.</span>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </div>
-          } />
-
-          <Route path="/veiculo/:vehicleId" element={
-            <CarDetailsWrapper cars={cars} onSubmitLead={handleSubmitLead} />
-          } />
-
-          <Route path="/admin/*" element={
-            userProfile && userProfile.role === 'admin' ? (
-              <AdminPanel
-                cars={cars}
-                messages={messages}
-                onAddCar={handleAddCar}
-                onEditCar={handleEditCar}
-                onDeleteCar={handleDeleteCar}
-                onUpdateMessageStatus={handleUpdateMessageStatus}
-                onDeleteMessage={handleDeleteMessage}
-              />
-            ) : (
-              <div className="flex-1 flex items-center justify-center bg-slate-900 py-16 px-4 sm:px-6 lg:px-8">
-                <div className="max-w-md w-full space-y-8 bg-slate-950 p-8 sm:p-10 rounded-3xl border border-slate-850 shadow-2xl">
-                  <div className="text-center">
-                    <div className="mx-auto flex items-center justify-center h-14 w-14 rounded-2xl bg-red-500/10 text-red-500 mb-4 border border-red-500/10">
-                      <ShieldCheck className="h-7 w-7" />
-                    </div>
-                    <h2 className="text-2xl font-black text-white tracking-tight">Painel Administrativo</h2>
-                    <p className="mt-2 text-xs text-slate-400">Área restrita para consultores e diretores.</p>
-                  </div>
-
-                  {adminError && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3.5 rounded-xl text-xs font-semibold">
-                      {adminError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleAdminLoginSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">E-mail</label>
-                      <input
-                        type="email"
-                        required
-                        value={adminEmail}
-                        onChange={(e) => setAdminEmail(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600"
-                        placeholder="exemplo@douradoveiculos.com.br"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Senha</label>
-                      <input
-                        type="password"
-                        required
-                        value={adminPassword}
-                        onChange={(e) => setAdminPassword(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600"
-                        placeholder="••••••••"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={adminLoading}
-                      className="w-full py-3.5 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 text-white font-bold text-sm rounded-xl transition-all shadow-md cursor-pointer flex items-center justify-center"
-                    >
-                      {adminLoading ? 'Autenticando...' : 'Entrar no Sistema'}
-                    </button>
-                  </form>
-                  <button
-                    type="button"
-                    onClick={handleDemoAdminAccess}
-                    disabled={adminLoading}
-                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-white font-bold text-sm rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 mt-4"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Entrar como Administrador de Testes</span>
-                  </button>
-                </div>
-              </div>
-            )
-          } />
-
-          <Route path="/cliente/*" element={
-            <ClientArea
-              cars={cars}
-              userProfile={userProfile}
-              onLogin={handleLogin}
-              onLogout={handleLogout}
-              onSelectCar={handleSelectCarDetails}
-              onAdminToggle={() => navigate('/admin')}
-            />
-          } />
-
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </div>
-      <Footer onAdminClick={() => navigate('/admin')} />
-    </div>
-  );
-}
-
-function CarDetailsWrapper({ cars, onSubmitLead }: { cars: Car[], onSubmitLead: any }) {
+// We need to replace the entire CarDetailsWrapper function.
+const oldWrapper = `function CarDetailsWrapper({ onSubmitLead }: { onSubmitLead: any }) {
   const { vehicleId } = useParams();
   const navigate = useNavigate();
   const car = cars.find(c => c.id === vehicleId);
@@ -552,9 +37,94 @@ function CarDetailsWrapper({ cars, onSubmitLead }: { cars: Car[], onSubmitLead: 
       onSubmitLead={onSubmitLead}
     />
   );
-}
-`;
+}`;
 
-code = headerCode + jsxCode;
+const newWrapper = `function CarDetailsWrapper({ onSubmitLead }: { onSubmitLead: any }) {
+  const { vehicleId } = useParams<{ vehicleId: string }>();
+  const decodedVehicleId = vehicleId ? decodeURIComponent(vehicleId).trim() : null;
+  const navigate = useNavigate();
+
+  const { vehicle, loading, error, refetch, incrementViews } = useVehicle(decodedVehicleId);
+  const hasIncremented = React.useRef(false);
+
+  useEffect(() => {
+    if (vehicle?.id) {
+      window.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: 'instant'
+      });
+      if (!hasIncremented.current) {
+        incrementViews();
+        hasIncremented.current = true;
+      }
+    }
+  }, [vehicle?.id, incrementViews]);
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center py-32 text-center bg-slate-50">
+         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mb-4"></div>
+         <p className="text-slate-500 font-medium">Carregando detalhes do veículo...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center py-20 text-center px-4 bg-slate-50">
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">Erro ao carregar</h2>
+        <p className="text-slate-500 mb-6">{error}</p>
+        <div className="flex gap-4">
+          <button onClick={refetch} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors">Tentar novamente</button>
+          <button onClick={() => navigate('/')} className="px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl font-bold transition-colors">Voltar ao Estoque</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!vehicle) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center py-20 text-center px-4 bg-slate-50">
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">Veículo não encontrado</h2>
+        <p className="text-slate-500 mb-6">O veículo que você está procurando pode ter sido vendido ou não existe mais.</p>
+        <button onClick={() => navigate('/')} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors">Voltar ao Catálogo</button>
+      </div>
+    );
+  }
+
+  return (
+    <CarDetails 
+      car={vehicle} 
+      onBack={() => navigate('/')} 
+      onSubmitLead={onSubmitLead} 
+    />
+  );
+}`;
+
+code = code.replace(oldWrapper, newWrapper);
+
+code = code.replace(
+  "<CarDetailsWrapper cars={cars} onSubmitLead={handleSubmitLead} />",
+  "<CarDetailsWrapper onSubmitLead={handleSubmitLead} />"
+);
+
+// We should also remove `vehicleService.incrementViews(car.id);` from `handleSelectCarDetails`
+// as it's now handled by the Wrapper (and only once).
+code = code.replace(
+  "const handleSelectCarDetails = (car: Car) => {\n    vehicleService.incrementViews(car.id);\n    navigate(`/veiculo/${encodeURIComponent(car.id)}`);\n  };",
+  "const handleSelectCarDetails = (car: Car) => {\n    navigate(`/veiculo/${encodeURIComponent(car.id)}`);\n  };"
+);
+
+// Fallback if encodeURIComponent is not yet added in handleSelectCarDetails
+code = code.replace(
+  "const handleSelectCarDetails = (car: Car) => {\n    vehicleService.incrementViews(car.id);\n    navigate(`/veiculo/${car.id}`);\n  };",
+  "const handleSelectCarDetails = (car: Car) => {\n    navigate(`/veiculo/${encodeURIComponent(car.id)}`);\n  };"
+);
+
+code = code.replace(
+  "const handleSelectCarDetails = (car: Car) => {\n    navigate(`/veiculo/\\${car.id}`);\n  };",
+  "const handleSelectCarDetails = (car: Car) => {\n    navigate(`/veiculo/\\${encodeURIComponent(car.id)}`);\n  };"
+);
 
 fs.writeFileSync('src/App.tsx', code);
